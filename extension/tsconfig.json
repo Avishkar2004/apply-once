@@ -1,0 +1,9 @@
+{
+  "extends": "./.wxt/tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["entrypoints/**/*", "src/**/*", "tests/**/*", "wxt.config.ts", ".wxt/wxt.d.ts"]
+}

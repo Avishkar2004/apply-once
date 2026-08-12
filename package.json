@@ -1,0 +1,39 @@
+{
+  "name": "autofill",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AutoFill — fill job application forms from a profile you maintain once.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "extension"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace extension",
+    "build": "npm run build --workspace extension",
+    "build:firefox": "npm run build:firefox --workspace extension",
+    "zip": "npm run zip --workspace extension",
+    "zip:firefox": "npm run zip:firefox --workspace extension",
+    "fetch:model": "node scripts/fetch-model.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test --config extension/tests/e2e/playwright.config.ts",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^22.18.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^9.39.0",
+    "fake-indexeddb": "^6.2.5",
+    "happy-dom": "^20.11.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.0",
+    "vitest": "^4.1.10"
+  }
+}

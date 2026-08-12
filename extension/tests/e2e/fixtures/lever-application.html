@@ -1,0 +1,119 @@
+<!--
+  Representative capture of a Lever application form (jobs.lever.co).
+  Structure and attribute names mirror the live markup; all values are fictional.
+-->
+<div class="content">
+  <div class="posting-header">
+    <h2>Staff Frontend Engineer</h2>
+    <div class="posting-categories">Engineering · Remote</div>
+  </div>
+
+  <form method="POST" action="https://jobs.lever.co/acme/00000000-0000-0000-0000-000000000000/apply" class="application-form">
+    <div class="application-question">
+      <label class="application-label">
+        <span class="text">Full name<span class="required">✱</span></span>
+        <input type="text" name="name" required autocomplete="name" />
+      </label>
+    </div>
+    <div class="application-question">
+      <label class="application-label">
+        <span class="text">Email<span class="required">✱</span></span>
+        <input type="email" name="email" required autocomplete="email" />
+      </label>
+    </div>
+    <div class="application-question">
+      <label class="application-label">
+        <span class="text">Phone</span>
+        <input type="tel" name="phone" autocomplete="tel" />
+      </label>
+    </div>
+    <div class="application-question">
+      <label class="application-label">
+        <span class="text">Current company</span>
+        <input type="text" name="org" autocomplete="organization" />
+      </label>
+    </div>
+    <div class="application-question">
+      <label class="application-label">
+        <span class="text">Location</span>
+        <input
+          type="text"
+          name="location"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded="false"
+          autocomplete="off"
+        />
+      </label>
+      <input type="hidden" name="selectedLocation" />
+    </div>
+
+    <div class="application-question">
+      <label class="application-label">
+        <span class="text">Resume/CV<span class="required">✱</span></span>
+        <input type="file" name="resume" required />
+      </label>
+    </div>
+
+    <div class="application-question">
+      <span class="application-label">Links</span>
+      <label class="application-label"><span class="text">LinkedIn URL</span>
+        <input type="text" name="urls[LinkedIn]" />
+      </label>
+      <label class="application-label"><span class="text">GitHub URL</span>
+        <input type="text" name="urls[GitHub]" />
+      </label>
+      <label class="application-label"><span class="text">Portfolio URL</span>
+        <input type="text" name="urls[Portfolio]" />
+      </label>
+      <label class="application-label"><span class="text">Other website</span>
+        <input type="text" name="urls[Other]" />
+      </label>
+    </div>
+
+    <div class="application-question custom-question">
+      <label class="application-label">
+        <span class="text">What is your desired salary?</span>
+        <input type="text" name="cards[11111111-2222-3333-4444-555555555555][field0]" />
+      </label>
+    </div>
+    <div class="application-question custom-question">
+      <label class="application-label">
+        <span class="text">Are you willing to relocate?</span>
+        <select name="cards[11111111-2222-3333-4444-555555555555][field1]">
+          <option value="">Select one</option>
+          <option value="Yes">Yes</option>
+          <option value="No">No</option>
+        </select>
+      </label>
+    </div>
+    <div class="application-question custom-question">
+      <label class="application-label">
+        <span class="text">Describe a project you are proud of</span>
+        <textarea name="cards[11111111-2222-3333-4444-555555555555][field2]" maxlength="1500"></textarea>
+      </label>
+    </div>
+
+    <fieldset class="application-eeo">
+      <legend>Voluntary self-identification</legend>
+      <label class="application-label"><span class="text">Gender</span>
+        <select name="eeo[gender]">
+          <option value="">Select one</option>
+          <option value="Male">Male</option>
+          <option value="Female">Female</option>
+          <option value="Decline to self identify">Decline to self identify</option>
+        </select>
+      </label>
+      <label class="application-label"><span class="text">Veteran status</span>
+        <select name="eeo[veteran]">
+          <option value="">Select one</option>
+          <option value="Yes, I am a protected veteran">Yes, I am a protected veteran</option>
+          <option value="No, I am not a protected veteran">No, I am not a protected veteran</option>
+          <option value="Decline to self identify">Decline to self identify</option>
+        </select>
+      </label>
+    </fieldset>
+
+    <button type="submit" class="template-btn-submit">Submit application</button>
+  </form>
+</div>

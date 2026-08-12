@@ -1,0 +1,19 @@
+{
+  "name": "@autofill/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared, DOM-free, chrome-free core: schema, crypto. Runs in a service worker, a browser tab and Vitest.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema/index.ts",
+    "./crypto": "./src/crypto/index.ts",
+    "./util": "./src/util/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}

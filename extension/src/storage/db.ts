@@ -1,0 +1,124 @@
+import Dexie, { type Table } from 'dexie';
+import type { CanonicalKey } from '@autofill/core';
+import type { MappingSource } from '@/shared/types';
+
+/**
+ * The local database (ARCHITECTURE.md §4, "Storage layout").
+ *
+ * What is encrypted and what is not, deliberately:
+ *
+ *  - `profile`, `documents`, `answerBank` hold PII and are stored as AES-GCM
+ *    envelopes. Only the service worker, holding the DEK, can read them.
+ *  - `overrides` and `mappingCache` hold hostnames, field signatures and
+ *    canonical *key names* — no profile values. They stay in the clear because
+ *    Tier 0 is specified at ~0ms (§3.2) and a per-lookup decrypt would not be.
+ *  - `auditLog` is by definition user-visible (§6.8).
+ *
+ * Non-sensitive preferences live in `chrome.storage.sync`, not here — see
+ * `storage/settings.ts`.
+ */
+
+export interface SealedRecordFields {
+  iv: Uint8Array;
+  ciphertext: Uint8Array;
+}
+
+/** Free-form singletons: the vault record, the sync high-water mark, flags. */
+export interface MetaRecord {
+  key: string;
+  value: unknown;
+}
+
+export interface ProfileRecord extends SealedRecordFields {
+  /** Always `'primary'` — one profile per installation. */
+  id: string;
+  updatedAt: string;
+}
+
+export interface DocumentRecord extends SealedRecordFields {
+  blobId: string;
+  filename: string;
+  mimeType: string;
+  byteSize: number;
+  createdAt: string;
+}
+
+export interface AnswerRecord extends SealedRecordFields {
+  /** sha256 of the normalised question text (+ company when company-specific). */
+  questionHash: string;
+  company?: string;
+  usedCount: number;
+  lastUsed: string;
+}
+
+export interface MappingCacheRecord {
+  /** hash(hostname + signature) — one LLM call per site, not per application. */
+  cacheKey: string;
+  hostname: string;
+  canonicalKey: CanonicalKey | 'FREE_TEXT' | 'UNMAPPABLE';
+  confidence: number;
+  source: MappingSource;
+  createdAt: string;
+}
+
+export interface OverrideRecord {
+  /** `${hostname}::${signature}` — the compound primary key. */
+  id: string;
+  hostname: string;
+  signature: string;
+  canonicalKey: CanonicalKey;
+  /** The label as it appeared when the correction was made, for the settings UI. */
+  label?: string;
+  createdAt: string;
+}
+
+export interface AuditEntry {
+  id?: number;
+  hostname: string;
+  url: string;
+  adapter?: string;
+  at: string;
+  filled: number;
+  lowConfidence: number;
+  rejected: number;
+  skipped: number;
+}
+
+export class AutoFillDatabase extends Dexie {
+  meta!: Table<MetaRecord, string>;
+  profile!: Table<ProfileRecord, string>;
+  documents!: Table<DocumentRecord, string>;
+  answerBank!: Table<AnswerRecord, string>;
+  mappingCache!: Table<MappingCacheRecord, string>;
+  overrides!: Table<OverrideRecord, string>;
+  auditLog!: Table<AuditEntry, number>;
+
+  constructor(name = 'autofill') {
+    super(name);
+    this.version(1).stores({
+      meta: 'key',
+      profile: 'id',
+      documents: 'blobId, createdAt',
+      answerBank: 'questionHash, company, lastUsed',
+      mappingCache: 'cacheKey, hostname, createdAt',
+      overrides: 'id, hostname, signature',
+      auditLog: '++id, hostname, at',
+    });
+  }
+}
+
+let instance: AutoFillDatabase | undefined;
+
+/** Lazily opened singleton. A service worker may be torn down between messages. */
+export function db(): AutoFillDatabase {
+  instance ??= new AutoFillDatabase();
+  return instance;
+}
+
+/** Test seam — lets a suite swap in a fresh database. */
+export function __setDatabaseForTests(next: AutoFillDatabase | undefined): void {
+  instance = next;
+}
+
+export const PROFILE_RECORD_ID = 'primary';
+export const VAULT_META_KEY = 'vault';
