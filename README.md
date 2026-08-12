@@ -26,15 +26,14 @@ Every milestone in ARCHITECTURE.md §9 is implemented.
 | **M4** | Answer Bank + LLM drafts for free-text | ✅ |
 | **M5** | Workday, iCIMS, shadow DOM, multi-step wizards | ✅ |
 | **M6** | Résumé parsing → profile bootstrap | ✅ |
-| **M6** | Optional sync | ⬜ not built — see [Known gaps](#known-gaps) |
+| **M6** | Optional sync | ✅ server side — see [`api/`](api/) |
 
 Beyond the milestone table, §6.8's audit log, §10's accuracy tracking and §11's
-90-day profile-drift nudge are implemented. The optional backend of §7 —
-`backend/`, carrying sync and an LLM proxy — is not.
+90-day profile-drift nudge are implemented.
 
-WEB.md's **W1** (`packages/core`) and **W2** (MUK/DEK key hierarchy, Recovery
-Kit, passphrase rotation) are done as part of the above. **W3–W8** are not — see
-[Known gaps](#known-gaps).
+WEB.md: **W1** (`packages/core`), **W2** (MUK/DEK hierarchy, Recovery Kit,
+passphrase rotation) and **W3** (the sync service in [`api/`](api/)) are done.
+**W4–W8** are blocked — see [Known gaps](#known-gaps).
 
 Both expensive tiers degrade rather than fail. No embedding model on disk and no
 API key means the cascade runs Tier 0 → Tier 1 and reports the rest as ⬜
@@ -113,6 +112,10 @@ AutoFill/
 │       └── e2e/
 │           ├── fixtures/        # saved application markup — the regression suite
 │           └── specs/           # Playwright, against a live board
+├── api/                         # zero-knowledge sync service (WEB.md W3)
+│   ├── src/{auth,routes}/       # Hono on Cloudflare Workers
+│   ├── schema.sql               # D1, verbatim from WEB.md §8
+│   └── tests/                   # 58 tests in real workerd
 ├── scripts/fetch-model.mjs      # Tier 2 embedding assets
 └── eslint.config.js             # architectural guards, not just style
 ```
@@ -220,7 +223,14 @@ would not be. `profile`, `documents` and `answerBank` are always encrypted.
 npm test
 ```
 
-256 tests across 16 files.
+337 tests: 279 unit and fixture tests in the workspace, plus 58 API tests that
+run inside a real `workerd` against real D1, KV and R2.
+
+```bash
+npm test        # both suites
+npm run test:unit
+npm run test:api
+```
 
 - **Unit** — label resolution against DOM snippets; the rule table against a
   labelled corpus; option and date normalisation; the crypto round-trip; the
@@ -233,6 +243,10 @@ npm test
 - **Adapter integrity** — every selector in all seven adapters is parsed, and
   every mapped value is checked against the canonical vocabulary. A typo in a
   Workday selector fails at build time rather than on someone's application.
+- **API integration** — the sync service runs in real `workerd`, not against
+  mocks. The two things most likely to be wrong there are the per-user `seq`
+  counter under D1's batch semantics and the tenant-isolation predicate on every
+  query, and neither is observable against a fake database.
 
 ```bash
 npx playwright install chromium
@@ -283,19 +297,18 @@ recognise — the cheapest fix is usually a phrasing in
 <a id="known-gaps"></a>
 ## Known gaps
 
-- **`docs/TRACKING.md` is missing**, and it is load-bearing for WEB.md. The
-  sync unit is an event log whose schema is TRACK §3.3 and whose projector
-  (`deriveStatus`) is TRACK §3.4; the web routes are the queue and board of
-  TRACK §8 and the analytics of TRACK §10. So `packages/core/tracker`,
-  `packages/core/sync`, and **W5–W8** are unspecified and unimplemented.
-  - **W3 is the exception.** The sync API never decrypts anything: §4.1's
-    `EventEnvelope`, §7's auth endpoints, and §8's D1 schema and quotas are
-    fully specified in WEB.md alone. It is buildable today. WEB.md §11 only
-    defers it because syncing a log nothing populates replicates gaps.
-- **The optional backend (§7, §8 `backend/`) is not built.** ARCHITECTURE.md
-  scopes it to "only sync + LLM proxy". The LLM client already accepts a
-  `baseUrl` override, so a proxy can be pointed at once one exists; nothing
-  serves that endpoint today. The sync half is WEB.md's W3.
+- **`docs/TRACKING.md` is missing**, and it is load-bearing for the rest of
+  WEB.md. The event *schema* is TRACK §3.3 and the projector (`deriveStatus`) is
+  TRACK §3.4; the web routes are the queue and board of TRACK §8 and the
+  analytics of TRACK §10. So `packages/core/tracker` and **W4–W8** — the sync
+  client and the web app — are unspecified and unimplemented.
+  - The **server** (W3) is deliberately unaffected: it stores opaque envelopes,
+    so it never needs to know what an event *is*. That is why it could be built
+    without the missing document.
+- **The LLM-proxy half of §7's optional backend is not built.** The LLM client
+  accepts a `baseUrl` override, so a proxy can be pointed at once one exists;
+  nothing serves that endpoint today. Direct browser → Anthropic with the user's
+  own key is the documented default anyway (§6.4).
 - **Nothing here has been run in a browser.** Everything is typechecked, linted,
   unit- and fixture-tested, and both targets build — but no Chrome has loaded
   the extension. The Tier 2 embedding path in particular (onnxruntime WASM

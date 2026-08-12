@@ -70,6 +70,20 @@ export interface AuditEntryDto {
   skipped: number;
 }
 
+/** W4 — optional multi-device sync (WEB.md §4). */
+export type SyncStateDto =
+  | { status: 'signed-out' }
+  | { status: 'locked'; email?: string }
+  | { status: 'idle'; email: string; pending: number; events: number; highWater: number }
+  | { status: 'syncing'; email: string }
+  | { status: 'error'; email: string; message: string; retryable: boolean };
+
+export interface SyncCredentialsDto {
+  email: string;
+  passphrase: string;
+  baseUrl: string;
+}
+
 export interface SiteAccuracyDto {
   hostname: string;
   adapter?: string;
@@ -164,6 +178,16 @@ export interface MessageMap {
   'answers:approve': {
     req: { question: string; answer: string; company?: string };
     res: { ok: true };
+  };
+
+  // ── Optional sync (WEB.md §4, W4) ──
+  'sync:state': { req: undefined; res: SyncStateDto };
+  'sync:sign-up': { req: SyncCredentialsDto; res: { ok: true } };
+  'sync:sign-in': { req: SyncCredentialsDto; res: { ok: true } };
+  'sync:sign-out': { req: undefined; res: { ok: true } };
+  'sync:now': {
+    req: undefined;
+    res: { pushed: number; pulled: number; stopped?: string };
   };
 
   // ── AI assistance configuration (§6.4) ──

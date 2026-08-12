@@ -6,7 +6,8 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "extension"
+    "extension",
+    "api"
   ],
   "engines": {
     "node": ">=20"
@@ -18,7 +19,9 @@
     "zip": "npm run zip --workspace extension",
     "zip:firefox": "npm run zip:firefox --workspace extension",
     "fetch:model": "node scripts/fetch-model.mjs",
-    "test": "vitest run",
+    "test": "vitest run && npm run test --workspace api",
+    "test:unit": "vitest run",
+    "test:api": "npm run test --workspace api",
     "test:watch": "vitest",
     "test:e2e": "playwright test --config extension/tests/e2e/playwright.config.ts",
     "typecheck": "npm run typecheck --workspaces --if-present",

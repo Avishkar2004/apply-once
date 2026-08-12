@@ -1,0 +1,16 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ES2023"],
+    "types": ["@cloudflare/workers-types"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
+    "paths": {
+      "@autofill/core": ["../packages/core/src/index.ts"],
+      "@autofill/core/*": ["../packages/core/src/*"],
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "env.d.ts", "vitest.config.ts"]
+}

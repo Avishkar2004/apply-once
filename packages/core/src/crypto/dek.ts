@@ -13,7 +13,14 @@ import { asBuffer } from './primitives';
 export const DEK_ALGORITHM = { name: 'AES-GCM', length: 256 } as const;
 
 export function generateDek(): Promise<CryptoKey> {
-  return crypto.subtle.generateKey(DEK_ALGORITHM, true, ['encrypt', 'decrypt']);
+  // `generateKey` is typed as returning `CryptoKey | CryptoKeyPair`; for a
+  // symmetric AES-GCM algorithm only the former is reachable. The DOM lib
+  // narrows this by overload, `@cloudflare/workers-types` does not — and this
+  // module compiles under both.
+  return crypto.subtle.generateKey(DEK_ALGORITHM, true, [
+    'encrypt',
+    'decrypt',
+  ]) as Promise<CryptoKey>;
 }
 
 /** AES-KW wrap. Output is 40 bytes for a 256-bit key. */

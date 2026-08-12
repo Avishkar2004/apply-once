@@ -7,4 +7,5 @@
  */
 export * from './schema/index';
 export * from './crypto/index';
+export * from './sync/index';
 export * from './util/index';

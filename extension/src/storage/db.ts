@@ -84,6 +84,22 @@ export interface AuditEntry {
   skipped: number;
 }
 
+/**
+ * A synced event, held **sealed** (WEB.md §4.1, ARCHITECTURE.md §6.2).
+ *
+ * The ciphertext is exactly what goes over the wire and exactly what came back,
+ * so a retried push is byte-identical and the sync loop never needs the DEK.
+ * Only the projector opens these, and only when the vault is unlocked.
+ */
+export interface EventRecord extends SealedRecordFields {
+  /** UUIDv7 from the device that created it. */
+  id: string;
+  deviceId: string;
+  /** Server-assigned seq, or `-1` while unacknowledged — this is the push queue. */
+  syncedSeq: number;
+  createdAt: string;
+}
+
 export class AutoFillDatabase extends Dexie {
   meta!: Table<MetaRecord, string>;
   profile!: Table<ProfileRecord, string>;
@@ -92,6 +108,7 @@ export class AutoFillDatabase extends Dexie {
   mappingCache!: Table<MappingCacheRecord, string>;
   overrides!: Table<OverrideRecord, string>;
   auditLog!: Table<AuditEntry, number>;
+  events!: Table<EventRecord, string>;
 
   constructor(name = 'autofill') {
     super(name);
@@ -103,6 +120,13 @@ export class AutoFillDatabase extends Dexie {
       mappingCache: 'cacheKey, hostname, createdAt',
       overrides: 'id, hostname, signature',
       auditLog: '++id, hostname, at',
+    });
+
+    // v2 adds the sync event log. Dexie carries the v1 stores forward, so only
+    // the new table is declared. `syncedSeq` is indexed because the push queue
+    // is a range query over it on every sync (§4.3).
+    this.version(2).stores({
+      events: 'id, syncedSeq, createdAt',
     });
   }
 }
