@@ -13,7 +13,12 @@ export const lever: AtsAdapter = {
 
   matches(url, doc) {
     if (url.hostname.endsWith('lever.co')) return true;
-    return doc.querySelector('form[action*="lever.co"], .application-form, #application-form') !== null;
+    // Brand-specific markers only. `.application-form` was here once and it
+    // claimed every career page on the internet that happened to use that class
+    // name — at which point Lever's selectors get applied to someone else's
+    // form. A false positive here is worse than no adapter at all, because the
+    // generic cascade would have handled the page correctly.
+    return doc.querySelector('form[action*="lever.co"], [data-qa="lever-application"]') !== null;
   },
 
   fieldMap: {

@@ -401,11 +401,88 @@ export function ProfileEditor({
             })
           }
         />
+        {/* Asked beside the expected figure on most applications outside the US. */}
+        <TextField
+          label="Current salary / CTC"
+          type="number"
+          value={
+            profile.preferences.currentSalary ? String(profile.preferences.currentSalary.amount) : ''
+          }
+          onChange={(value) => {
+            const amount = Number(value);
+            onChange({
+              ...profile,
+              preferences: {
+                ...profile.preferences,
+                currentSalary:
+                  Number.isFinite(amount) && value !== ''
+                    ? { amount, currency: profile.preferences.currentSalary?.currency ?? 'USD' }
+                    : undefined,
+              },
+            });
+          }}
+        />
+        <TextField
+          label="Current salary currency"
+          value={profile.preferences.currentSalary?.currency ?? ''}
+          onChange={(currency) =>
+            onChange({
+              ...profile,
+              preferences: {
+                ...profile.preferences,
+                currentSalary: profile.preferences.currentSalary
+                  ? { ...profile.preferences.currentSalary, currency }
+                  : undefined,
+              },
+            })
+          }
+        />
         <TextField
           label="Notice period"
+          hint="in your own words, e.g. “2 months” or “Immediate”"
           value={str(profile.preferences.noticePeriod)}
           onChange={(noticePeriod) =>
             onChange({ ...profile, preferences: { ...profile.preferences, noticePeriod } })
+          }
+        />
+        {/* Forms that ask "Available to join (in days)" need a number, not prose.
+            Fill either box — whichever is missing is worked out from the other. */}
+        <TextField
+          label="Available to join (days)"
+          type="number"
+          hint="fills “Available To Join (in days)”; leave blank to derive it from the line above"
+          value={
+            profile.preferences.noticePeriodDays === undefined
+              ? ''
+              : String(profile.preferences.noticePeriodDays)
+          }
+          onChange={(value) => {
+            const days = Number(value);
+            onChange({
+              ...profile,
+              preferences: {
+                ...profile.preferences,
+                noticePeriodDays:
+                  value !== '' && Number.isFinite(days) && days >= 0 ? days : undefined,
+              },
+            });
+          }}
+        />
+        <TextArea
+          label="Preferred work locations"
+          hint="comma separated — the cities you want to work in, not where you live"
+          value={profile.preferences.preferredLocations.join(', ')}
+          onChange={(value) =>
+            onChange({
+              ...profile,
+              preferences: {
+                ...profile.preferences,
+                preferredLocations: value
+                  .split(',')
+                  .map((city) => city.trim())
+                  .filter(Boolean),
+              },
+            })
           }
         />
         <TextField

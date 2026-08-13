@@ -13,7 +13,14 @@ import { readPageContext } from '@/core/scanner/page-context';
 import { summarise, verifyFills } from '@/core/verifier';
 import { createLogger } from '@/shared/logger';
 import { sendToBackground } from '@/shared/messaging';
-import { toDto, type FieldDescriptor, type FillSession, type PageContext } from '@/shared/types';
+import {
+  toDto,
+  type FieldDescriptor,
+  type FillInstruction,
+  type FillPlan,
+  type FillSession,
+  type PageContext,
+} from '@/shared/types';
 
 const log = createLogger('session');
 
@@ -35,6 +42,10 @@ export class PageSession {
   private wizard: WizardWatcher | undefined;
   /** Wizard auto-fill only arms once the user has asked for a fill at least once. */
   private hasFilled = false;
+  /** Document instructions held back for an explicit click — see `withholdDocuments`. */
+  private withheld = new Map<string, FillInstruction>();
+  /** Signatures of file inputs already attached, so a re-fill never uploads twice. */
+  private attached = new Set<string>();
 
   constructor(private readonly doc: Document = document) {}
 
@@ -129,7 +140,7 @@ export class PageSession {
     // mapping request (§3.2, §6.3).
     this.pageContext = readPageContext(this.doc);
 
-    const plan = await sendToBackground('mapping:plan', {
+    const proposed = await sendToBackground('mapping:plan', {
       hostname: url.hostname,
       url: url.href,
       ...(this.adapter ? { adapter: this.adapter.name } : {}),
@@ -137,6 +148,8 @@ export class PageSession {
       ...(this.adapter ? { adapterMappings: resolveAdapterMappings(this.adapter, fields, this.doc) } : {}),
       pageContext: this.pageContext,
     });
+
+    const plan = withholdDocuments(proposed, this.fields, this.attached, this.withheld);
 
     const attempts = await executePlan(this.fields, plan, {
       ...(this.adapter?.comboboxStrategy ? { strategy: this.adapter.comboboxStrategy } : {}),
@@ -202,6 +215,34 @@ export class PageSession {
     return true;
   }
 
+  /**
+   * Attach a stored document to a file input.
+   *
+   * The one-click action the review panel offers for a `needs-attach` row, and
+   * the *only* path from a stored document to a form. See `withholdDocuments`
+   * for why this is never part of a fill.
+   */
+  async attachDocument(fieldId: string): Promise<{ ok: boolean; detail: string }> {
+    const field = this.fields.get(fieldId);
+    const instruction = this.withheld.get(fieldId);
+    if (!field || !instruction) return { ok: false, detail: 'There is nothing stored to attach.' };
+
+    const [attempt] = await executePlan(
+      this.fields,
+      { instructions: [instruction], skipped: [] },
+      { fetchDocument },
+    );
+    if (!attempt || attempt.error) {
+      return { ok: false, detail: attempt?.error ?? 'The upload control refused the file.' };
+    }
+
+    // Latched: a later re-fill will not offer this row again, so the site's
+    // parser runs exactly once.
+    this.attached.add(field.signature);
+    this.highlight(fieldId);
+    return { ok: true, detail: attempt.wrote ?? 'Attached' };
+  }
+
   /** Scroll to a field and outline it — the overlay's row-click behaviour (§3.5). */
   highlight(fieldId: string): void {
     const el = this.fields.get(fieldId)?.el.deref();
@@ -217,6 +258,51 @@ export class PageSession {
       el.style.outlineOffset = previousOffset;
     }, 1600);
   }
+}
+
+/**
+ * Hold every document back for an explicit click.
+ *
+ * Attaching a résumé is not like typing a name. Most applicant tracking systems
+ * — Keka, Naukri, Workday, SmartRecruiters — run their *own* parser the instant
+ * a file lands on the input, then ask whether to overwrite the form with what
+ * they extracted. Answering that rewrites the fields, which is a DOM change,
+ * which invites another fill, which re-attaches the file, which re-opens the
+ * dialog. The user sees an unclosable loop and the extension looks broken.
+ *
+ * Uploading also puts a document on someone else's server. That is a side
+ * effect with the same shape as submitting the form, and §6.7 already says the
+ * user makes that call, not us.
+ *
+ * So file instructions never execute as part of a fill. They are parked here,
+ * surfaced in the panel as a `needs-attach` row with a button, and latched by
+ * signature once used so a re-fill cannot upload the same document twice.
+ */
+export function withholdDocuments(
+  plan: FillPlan,
+  fields: ReadonlyMap<string, FieldDescriptor>,
+  attached: ReadonlySet<string>,
+  parked: Map<string, FillInstruction>,
+): FillPlan {
+  const instructions: FillInstruction[] = [];
+  const skipped = [...plan.skipped];
+  parked.clear();
+
+  for (const instruction of plan.instructions) {
+    const field = fields.get(instruction.fieldId);
+    if (field?.kind !== 'file') {
+      instructions.push(instruction);
+      continue;
+    }
+    // Already attached in this session: the file is on the form, and offering
+    // it again is exactly the loop this function exists to prevent.
+    if (attached.has(field.signature)) continue;
+
+    parked.set(instruction.fieldId, instruction);
+    skipped.push({ fieldId: instruction.fieldId, reason: 'needs-attach', key: instruction.key });
+  }
+
+  return { instructions, skipped };
 }
 
 /** Documents cross the message boundary base64-encoded (Chrome messaging is JSON). */

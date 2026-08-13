@@ -13,7 +13,8 @@ export const smartRecruiters: AtsAdapter = {
 
   matches(url, doc) {
     if (url.hostname.endsWith('smartrecruiters.com')) return true;
-    return doc.querySelector('[data-test="application-form"], .sr-application') !== null;
+    // Brand-specific only — see the note in lever.ts on false positives.
+    return doc.querySelector('.sr-application, [data-sr-job-id]') !== null;
   },
 
   fieldMap: {

@@ -30,6 +30,7 @@ const SKIP_REASONS: Record<SkipReason, string> = {
   'not-fillable': 'This control cannot be filled',
   'eeo-disabled': 'Voluntary self-identification is turned off',
   'cross-origin-frame': 'Inside a frame AutoFill cannot reach',
+  'needs-attach': 'Uploading re-runs this site’s own résumé parser, so it is your call',
 };
 
 export function verifyFills(

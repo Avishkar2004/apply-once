@@ -35,6 +35,12 @@ export function SettingsPanel({ onLocked }: { onLocked: () => void }) {
           onChange={(enabled) => void patch({ enabled })}
         />
         <CheckboxField
+          label="Fill automatically when I open an application"
+          description="Fills as soon as a form is detected, without waiting for a click. AutoFill still never submits — you always review first."
+          checked={settings.autoFill}
+          onChange={(autoFill) => void patch({ autoFill })}
+        />
+        <CheckboxField
           label="Fill voluntary self-identification questions"
           description="Off by default. When off, EEO questions are recognised but left blank for you to answer yourself."
           checked={settings.fillEeo}

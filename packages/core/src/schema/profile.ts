@@ -168,7 +168,26 @@ export const PROFILE = z.object({
         period: z.enum(['year', 'hour']).default('year'),
       })
       .optional(),
+    // Kept apart from `desiredSalary`: forms outside the US ask for both, in
+    // adjacent boxes, and filling the expected figure into the current one is a
+    // materially bad answer rather than a cosmetic slip.
+    currentSalary: z
+      .object({
+        amount: z.number().nonnegative(),
+        currency: z.string().default('USD'),
+      })
+      .optional(),
     noticePeriod: optionalText,
+    /**
+     * The same answer as `noticePeriod`, as a number.
+     *
+     * Applications ask it both ways — a free-text box that wants "2 months" and
+     * a required numeric one that wants "60" — so the resolver derives whichever
+     * of the pair is missing rather than making the user answer twice.
+     */
+    noticePeriodDays: z.number().nonnegative().optional(),
+    /** Cities the applicant wants to work in. Not where they live. */
+    preferredLocations: z.array(z.string()).default([]),
     earliestStartDate: isoDateish,
     remotePreference: z.enum(['remote', 'hybrid', 'onsite', 'flexible']).optional(),
     willingToRelocate: z.boolean().optional(),

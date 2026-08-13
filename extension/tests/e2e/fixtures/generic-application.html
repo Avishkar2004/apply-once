@@ -1,0 +1,100 @@
+<!--
+  A generic application form on an unknown ATS — no adapter, no stable ids,
+  no `autocomplete` attributes. Modelled on the shape used by Keka, Zoho
+  Recruit, Freshteam and countless in-house career pages: a React form whose
+  inputs are labelled by an adjacent element rather than a `<label for>`.
+
+  This is the case that matters most: ARCHITECTURE.md G2 is "handle
+  unknown/custom forms gracefully", and every adapter is only an optimisation
+  on top of this path.
+-->
+<div id="app">
+  <h1 class="job-title">Senior Product Engineer</h1>
+
+  <form class="application-form" novalidate>
+    <div class="form-section">
+      <h3>Personal details</h3>
+
+      <div class="form-row">
+        <span class="field-label">First Name<em>*</em></span>
+        <input type="text" class="form-control" data-field="c1f2" />
+      </div>
+
+      <div class="form-row">
+        <span class="field-label">Last Name<em>*</em></span>
+        <input type="text" class="form-control" data-field="c1f3" />
+      </div>
+
+      <div class="form-row">
+        <span class="field-label">Email Address<em>*</em></span>
+        <input type="text" class="form-control" data-field="c1f4" />
+      </div>
+
+      <div class="form-row">
+        <span class="field-label">Mobile Number<em>*</em></span>
+        <input type="text" class="form-control" data-field="c1f5" />
+      </div>
+
+      <div class="form-row">
+        <span class="field-label">Current Location</span>
+        <input type="text" class="form-control" data-field="c1f6" />
+      </div>
+    </div>
+
+    <div class="form-section">
+      <h3>Professional details</h3>
+
+      <div class="form-row">
+        <span class="field-label">Current Company</span>
+        <input type="text" class="form-control" data-field="c2f1" />
+      </div>
+
+      <div class="form-row">
+        <span class="field-label">Current Designation</span>
+        <input type="text" class="form-control" data-field="c2f2" />
+      </div>
+
+      <div class="form-row">
+        <span class="field-label">Total Experience (Years)</span>
+        <input type="text" class="form-control" data-field="c2f3" />
+      </div>
+
+      <div class="form-row">
+        <span class="field-label">Expected CTC</span>
+        <input type="text" class="form-control" data-field="c2f4" />
+      </div>
+
+      <div class="form-row">
+        <span class="field-label">Notice Period</span>
+        <input type="text" class="form-control" data-field="c2f5" />
+      </div>
+
+      <div class="form-row">
+        <span class="field-label">Highest Qualification</span>
+        <input type="text" class="form-control" data-field="c2f6" />
+      </div>
+    </div>
+
+    <div class="form-section">
+      <h3>Links</h3>
+      <div class="form-row">
+        <span class="field-label">LinkedIn Profile</span>
+        <input type="text" class="form-control" data-field="c3f1" />
+      </div>
+      <div class="form-row">
+        <span class="field-label">Portfolio / Website</span>
+        <input type="text" class="form-control" data-field="c3f2" />
+      </div>
+    </div>
+
+    <div class="form-section">
+      <h3>Attachments</h3>
+      <div class="form-row">
+        <span class="field-label">Upload Resume<em>*</em></span>
+        <input type="file" class="form-control" data-field="c4f1" />
+      </div>
+    </div>
+
+    <button type="submit" class="btn-primary">Submit Application</button>
+  </form>
+</div>

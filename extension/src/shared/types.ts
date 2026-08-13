@@ -107,7 +107,9 @@ export type SkipReason =
   | 'free-text'
   | 'not-fillable'
   | 'eeo-disabled'
-  | 'cross-origin-frame';
+  | 'cross-origin-frame'
+  /** A document we hold, deliberately left for the user to attach — see §3.4a. */
+  | 'needs-attach';
 
 export interface FillInstruction {
   fieldId: string;

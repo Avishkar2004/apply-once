@@ -31,6 +31,77 @@ const log = createLogger('background');
  * extension can read the profile; the content script asks for a plan and gets
  * back only the values for the fields it is about to fill.
  */
+/** The built content script, as it lands in the extension package. */
+const CONTENT_SCRIPT = '/content-scripts/content.js';
+
+/** Pages no extension may script. Worth naming so the failure is explicable. */
+const UNSCRIPTABLE =
+  /^(chrome|edge|about|devtools|view-source|chrome-extension|moz-extension):|^https:\/\/chromewebstore\.google\.com/;
+
+/**
+ * Open the profile editor as a real tab.
+ *
+ * Deliberately not `runtime.openOptionsPage()`: that helper honours
+ * `options_ui.open_in_tab`, and when it is false Chrome renders the page as an
+ * overlay *inside* `chrome://extensions` — which reads as "the button sent me to
+ * the extensions page". Opening the URL directly always behaves the same way.
+ */
+async function openProfileEditor(): Promise<void> {
+  const url = browser.runtime.getURL('/options.html');
+
+  const [existing] = await browser.tabs.query({ url });
+  if (existing?.id !== undefined) {
+    await browser.tabs.update(existing.id, { active: true });
+    if (existing.windowId !== undefined) {
+      await browser.windows.update(existing.windowId, { focused: true });
+    }
+    return;
+  }
+  await browser.tabs.create({ url });
+}
+
+/**
+ * Fill whatever tab the user is looking at.
+ *
+ * Message first, inject second: where the declared content script is already
+ * running, injecting again would put a second copy in the same frame.
+ */
+async function fillActiveTab(tab: {
+  id?: number | undefined;
+  url?: string | undefined;
+}): Promise<void> {
+  if (typeof tab.id !== 'number') return;
+
+  if (tab.url && UNSCRIPTABLE.test(tab.url)) {
+    log.info('browsers do not allow extensions to script this page');
+    await flashBadge('—', '#6b7280');
+    return;
+  }
+
+  try {
+    await sendToTab(tab.id, 'content:fill');
+    return;
+  } catch {
+    log.debug('no content script in this tab yet — injecting');
+  }
+
+  await browser.scripting.executeScript({
+    target: { tabId: tab.id, allFrames: true },
+    files: [CONTENT_SCRIPT],
+  });
+
+  // The injected script registers its listener during evaluation, so it is
+  // ready by the time `executeScript` resolves.
+  await sendToTab(tab.id, 'content:fill');
+}
+
+/** Brief toolbar feedback for the cases that never reach the page. */
+async function flashBadge(text: string, colour: string): Promise<void> {
+  await browser.action.setBadgeText({ text });
+  await browser.action.setBadgeBackgroundColor({ color: colour });
+  setTimeout(() => void browser.action.setBadgeText({ text: '' }), 4000);
+}
+
 export default defineBackground(() => {
   registerHandlers({
     // ── session / vault ──
@@ -150,10 +221,25 @@ export default defineBackground(() => {
   });
 
   // The toolbar button asks the page to fill. It never submits anything (§6.7).
+  // First run: open the profile editor. Nothing else tells a new user where to
+  // go, and an extension whose button appears to do nothing reads as broken.
+  browser.runtime.onInstalled.addListener((details) => {
+    if (details.reason === 'install') void openProfileEditor();
+  });
+
+  /**
+   * The toolbar button fills the page you are on. It never submits (§6.7), and
+   * it never navigates you away.
+   *
+   * Works on any site. The content script is declared for all URLs, but a page
+   * loaded before this extension was installed or reloaded has no script in it
+   * — so if the message finds no listener, inject one and retry rather than
+   * failing silently, which is what made this look broken.
+   */
   browser.action.onClicked.addListener((tab) => {
-    if (typeof tab.id !== 'number') return;
-    void sendToTab(tab.id, 'content:fill').catch((error: unknown) => {
-      log.warn('no content script on this tab', error);
+    void fillActiveTab(tab).catch((error: unknown) => {
+      log.error('could not fill this tab', error);
+      void flashBadge('!', '#dc2626');
     });
   });
 

@@ -11,6 +11,9 @@ const KEY = 'settings';
 
 export const DEFAULT_SETTINGS: Settings = {
   enabled: true,
+  // On by default: the point of the product is not typing. A fill is always
+  // reviewable and never submits, so the cost of doing it unasked is low.
+  autoFill: true,
   theme: 'system',
   disabledHosts: [],
   // Off until the user configures a key; Tier 3 and answer drafts are opt-in (§6.3–6.4).

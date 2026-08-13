@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import type { CanonicalKey } from '@autofill/core';
 import type { FillOutcome, FillSession } from '@/shared/types';
 import { KeyPicker } from './KeyPicker';
@@ -6,11 +6,19 @@ import { KeyPicker } from './KeyPicker';
 /**
  * The review overlay (ARCHITECTURE.md §3.5).
  *
- * It shows what needs attention, not what worked: ⚠️ low-confidence, ❌ rejected
- * and ⬜ skipped rows. The ✅ count is in the header, because a list of 31
- * correct fields is noise.
+ * The panel is ranked, not listed. A real application form has forty controls
+ * and the user cares about three of them, so the layout is:
  *
- * "Never auto-submits" is in the footer on every render — it is the product's
+ *   1. a header that answers "did it work?" without reading — a proportion bar
+ *      and four counts;
+ *   2. **Needs you** — the handful that failed or landed low-confidence, open;
+ *   3. everything else folded away behind a disclosure, with counts.
+ *
+ * Page furniture that could never hold profile data — captchas, consent
+ * paragraphs, currency prefixes — is summarised as a tally instead of getting a
+ * row each. See `isFurniture`.
+ *
+ * "Never auto-submits" sits in the footer on every render — it is the product's
  * central promise, not a preference.
  */
 
@@ -33,14 +41,9 @@ export interface OverlayProps {
   onDraft: (outcome: FillOutcome) => Promise<{ answer: string; source: 'bank' | 'llm' }>;
   /** The approval click — the only path from a draft to the form. */
   onAcceptDraft: (outcome: FillOutcome, answer: string) => Promise<boolean>;
+  /** The one-click upload — the only path from a stored document to the form. */
+  onAttach: (outcome: FillOutcome) => Promise<{ ok: boolean; detail: string }>;
 }
-
-const ICONS = {
-  filled: '✅',
-  'low-confidence': '⚠️',
-  rejected: '❌',
-  skipped: '⬜',
-} as const;
 
 export function Overlay(props: OverlayProps) {
   const { phase } = props;
@@ -59,24 +62,53 @@ export function Overlay(props: OverlayProps) {
 
 function Header({ phase, onClose }: OverlayProps) {
   const session = phase.kind === 'done' ? phase.session : undefined;
-  const title = session ? `${session.hostname}${session.adapter ? ` · ${session.adapter}` : ''}` : 'AutoFill';
+  const s = session?.summary;
+  const total = Math.max(s?.total ?? 0, 1);
+  const pct = (n: number) => `${((n / total) * 100).toFixed(2)}%`;
 
   return (
-    <div className="head">
-      <div className="title">
-        <strong>AutoFill — {title}</strong>
+    // The grab handle. `drag.ts` looks for this attribute, not the class name.
+    <div className="head" data-autofill-drag title="Drag to move">
+      <div className="brand">
+        <span className="grip" aria-hidden />
+        <span className="brand-mark" aria-hidden>
+          A
+        </span>
+        <span className="brand-name">AutoFill</span>
+        <span className="brand-host" title={session?.hostname}>
+          {session ? `${session.hostname}${session.adapter ? ` · ${session.adapter}` : ''}` : ''}
+        </span>
         <button className="icon-close" onClick={onClose} aria-label="Close">
           ×
         </button>
       </div>
-      {session && (
-        <div className="counts">
-          <span className="count">✅ {session.summary.filled} filled</span>
-          <span className="count">⚠️ {session.summary.lowConfidence} check</span>
-          {session.summary.rejected > 0 && <span className="count">❌ {session.summary.rejected} failed</span>}
-          <span className="count">⬜ {session.summary.skipped} skip</span>
-        </div>
+
+      {s && (
+        <>
+          <div className="meter" role="img" aria-label={`${s.filled} of ${s.total} fields filled`}>
+            {s.filled > 0 && <span className="meter-ok" style={{ width: pct(s.filled) }} />}
+            {s.lowConfidence > 0 && <span className="meter-warn" style={{ width: pct(s.lowConfidence) }} />}
+            {s.rejected > 0 && <span className="meter-bad" style={{ width: pct(s.rejected) }} />}
+            {s.skipped > 0 && <span className="meter-idle" style={{ width: pct(s.skipped) }} />}
+          </div>
+
+          <div className="stats">
+            <Stat tone="ok" n={s.filled} label="filled" />
+            {s.lowConfidence > 0 && <Stat tone="warn" n={s.lowConfidence} label="check" />}
+            {s.rejected > 0 && <Stat tone="bad" n={s.rejected} label="failed" />}
+            <Stat tone="idle" n={s.skipped} label="skipped" />
+          </div>
+        </>
       )}
+    </div>
+  );
+}
+
+function Stat({ tone, n, label }: { tone: string; n: number; label: string }) {
+  return (
+    <div className={`stat stat-${tone}`}>
+      <span className="stat-n">{n}</span>
+      <span className="stat-l">{label}</span>
     </div>
   );
 }
@@ -85,7 +117,7 @@ function FillingBody({ done, total }: { done: number; total: number }) {
   const pct = total === 0 ? 0 : Math.round((done / total) * 100);
   return (
     <div className="notice">
-      <span>Filling {total} fields…</span>
+      <strong>Filling {total} fields…</strong>
       <div className="progress">
         <span style={{ width: `${pct}%` }} />
       </div>
@@ -122,6 +154,43 @@ function ErrorBody({ message, onRefill }: { message: string; onRefill: () => voi
   );
 }
 
+/**
+ * Is this row page furniture rather than a question about the applicant?
+ *
+ * Every form carries controls that no profile could ever fill: a captcha, a
+ * consent paragraph rendered as a checkbox label, a currency prefix beside a
+ * salary box, a bare "Select" placeholder. Giving each of them a row with
+ * "No matching profile field" and a key picker buries the two rows that
+ * actually need a decision.
+ *
+ * The test only ever *demotes*, and only ever within the skipped group:
+ *
+ *  - a failure is never furniture, whatever it is called;
+ *  - a free-text question is never furniture — it has a draft flow;
+ *  - a `needs-attach` row is never furniture — it has a button.
+ *
+ * Demoted rows are still counted, and the tally naming them stays visible, so
+ * nothing disappears silently.
+ */
+const FURNITURE_LABEL =
+  /\b(captcha|recaptcha|i (agree|accept|consent)|privacy policy|terms (and|&) conditions|declaration|hereby|data processing)\b|^[swd]\/o$/i;
+
+/** A placeholder or a unit, not a question. */
+const NOT_A_QUESTION = /^(select|choose|none|n\/?a|inr|usd|rs\.?|₹|\$|—|–|-|\*)$/i;
+
+export function isFurniture(outcome: FillOutcome): boolean {
+  if (outcome.status !== 'skipped') return false;
+  if (outcome.skipReason === 'free-text' || outcome.skipReason === 'needs-attach') return false;
+
+  const label = outcome.label.trim();
+  if (label.length < 2) return true;
+  if (NOT_A_QUESTION.test(label)) return true;
+  if (FURNITURE_LABEL.test(label)) return true;
+  // A sentence is a disclosure the user must read and tick, not a field label.
+  if (label.length > 90) return true;
+  return false;
+}
+
 function ResultBody({
   session,
   unreachableFrames,
@@ -129,52 +198,122 @@ function ResultBody({
   onCorrect,
   onDraft,
   onAcceptDraft,
+  onAttach,
 }: { session: FillSession } & OverlayProps) {
-  const needsAttention = useMemo(
-    () => session.outcomes.filter((outcome) => outcome.status !== 'filled'),
-    [session],
-  );
+  const groups = useMemo(() => {
+    const attention: FillOutcome[] = [];
+    const filled: FillOutcome[] = [];
+    const idle: FillOutcome[] = [];
+    let furniture = 0;
 
-  if (needsAttention.length === 0) {
-    return (
-      <div className="notice">
-        <strong>Everything mapped cleanly.</strong>
-        <span className="muted">
-          {session.summary.filled} fields filled in {(session.summary.durationMs / 1000).toFixed(1)}s. Review
-          them before you submit.
-        </span>
-        {unreachableFrames > 0 && <FrameCaveat count={unreachableFrames} />}
-      </div>
-    );
-  }
+    for (const outcome of session.outcomes) {
+      if (outcome.status === 'filled') filled.push(outcome);
+      else if (outcome.status !== 'skipped') attention.push(outcome);
+      else if (isFurniture(outcome)) furniture += 1;
+      else idle.push(outcome);
+    }
+
+    // Things with an action attached come first within their group.
+    const actionable = (o: FillOutcome) =>
+      o.skipReason === 'needs-attach' ? 0 : o.skipReason === 'free-text' ? 1 : 2;
+    idle.sort((a, b) => actionable(a) - actionable(b));
+
+    return { attention, filled, idle, furniture };
+  }, [session]);
+
+  const rowProps = { onHighlight, onCorrect, onDraft, onAcceptDraft, onAttach };
+  const nothingLeft = groups.attention.length === 0 && groups.idle.length === 0;
 
   return (
     <div className="body">
-      {needsAttention.map((outcome) => (
-        <Row
-          key={outcome.fieldId}
-          outcome={outcome}
-          onHighlight={onHighlight}
-          onCorrect={onCorrect}
-          onDraft={onDraft}
-          onAcceptDraft={onAcceptDraft}
-        />
-      ))}
-      {unreachableFrames > 0 && (
-        <div className="row">
-          <FrameCaveat count={unreachableFrames} />
+      {nothingLeft && (
+        <div className="notice">
+          <strong>Everything mapped cleanly.</strong>
+          <span className="muted">
+            {session.summary.filled} fields in {(session.summary.durationMs / 1000).toFixed(1)}s. Read them
+            over before you submit.
+          </span>
+        </div>
+      )}
+
+      {groups.attention.length > 0 && (
+        <Section title="Needs you" count={groups.attention.length}>
+          {groups.attention.map((outcome) => (
+            <Row key={outcome.fieldId} outcome={outcome} {...rowProps} />
+          ))}
+        </Section>
+      )}
+
+      {groups.filled.length > 0 && (
+        <Fold title="Filled" count={groups.filled.length}>
+          {groups.filled.map((outcome) => (
+            <div
+              key={outcome.fieldId}
+              className="row row-compact row-filled"
+              onClick={() => onHighlight(outcome.fieldId)}
+            >
+              <span className="row-label">{outcome.label}</span>
+              {outcome.actual ? <span className="value">{outcome.actual}</span> : null}
+            </div>
+          ))}
+        </Fold>
+      )}
+
+      {groups.idle.length > 0 && (
+        <Fold title="Nothing to fill" count={groups.idle.length}>
+          {groups.idle.map((outcome) => (
+            <Row key={outcome.fieldId} outcome={outcome} {...rowProps} />
+          ))}
+        </Fold>
+      )}
+
+      {(groups.furniture > 0 || unreachableFrames > 0) && (
+        <div className="tail">
+          {groups.furniture > 0 && (
+            <div>
+              {groups.furniture} more {groups.furniture === 1 ? 'control' : 'controls'} on this page hold
+              nothing about you — captcha, consent and the like.
+            </div>
+          )}
+          {unreachableFrames > 0 && (
+            <div>
+              {unreachableFrames} embedded {unreachableFrames === 1 ? 'frame' : 'frames'} could not be read —
+              anything inside {unreachableFrames === 1 ? 'it' : 'them'} needs filling by hand.
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function FrameCaveat({ count }: { count: number }) {
+function Section({ title, count, children }: { title: string; count: number; children: ReactNode }) {
   return (
-    <span className="muted">
-      {count} embedded {count === 1 ? 'frame' : 'frames'} could not be read — anything inside{' '}
-      {count === 1 ? 'it' : 'them'} needs filling by hand.
-    </span>
+    <section>
+      <div className="section-head">
+        <span>{title}</span>
+        <span className="section-n">{count}</span>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** A collapsed group. Native `<details>`, so it is keyboard accessible for free. */
+function Fold({ title, count, children }: { title: string; count: number; children: ReactNode }) {
+  return (
+    <details className="fold">
+      <summary className="section-head">
+        <span className="summary-label">
+          <span className="chev" aria-hidden>
+            ›
+          </span>
+          {title}
+        </span>
+        <span className="section-n">{count}</span>
+      </summary>
+      {children}
+    </details>
   );
 }
 
@@ -184,12 +323,14 @@ function Row({
   onCorrect,
   onDraft,
   onAcceptDraft,
+  onAttach,
 }: {
   outcome: FillOutcome;
   onHighlight: (fieldId: string) => void;
   onCorrect: (outcome: FillOutcome, key: CanonicalKey) => Promise<void>;
   onDraft: OverlayProps['onDraft'];
   onAcceptDraft: OverlayProps['onAcceptDraft'];
+  onAttach: OverlayProps['onAttach'];
 }) {
   const [busy, setBusy] = useState(false);
   const [accepted, setAccepted] = useState(false);
@@ -204,18 +345,19 @@ function Row({
   };
 
   // A free-text question is answered, not mapped — it gets the draft flow
-  // instead of the canonical-key picker (§3.6).
+  // instead of the canonical-key picker (§3.6). A document is attached, not
+  // typed, so it gets a button instead of either.
   const isFreeText = outcome.skipReason === 'free-text';
+  const isDocument = outcome.skipReason === 'needs-attach';
 
   return (
-    <div className="row" onClick={() => onHighlight(outcome.fieldId)}>
+    <div className={`row row-${outcome.status}`} onClick={() => onHighlight(outcome.fieldId)}>
       <div className="row-head">
-        <span aria-hidden>{ICONS[outcome.status]}</span>
         <span className="row-label">{outcome.label}</span>
         {outcome.status !== 'skipped' && !accepted && (
           <span className="row-actions">
             <button
-              className="btn"
+              className="btn btn-ghost"
               disabled={busy}
               onClick={(event) => {
                 event.stopPropagation();
@@ -229,16 +371,60 @@ function Row({
         )}
       </div>
 
-      {outcome.actual ? <div className="value">→ {outcome.actual}</div> : null}
+      {outcome.actual ? <div className="value">{outcome.actual}</div> : null}
       {outcome.reason && <span className="muted">{outcome.reason}</span>}
 
-      {isFreeText ? (
+      {isDocument ? (
+        <AttachButton outcome={outcome} onAttach={onAttach} />
+      ) : isFreeText ? (
         <DraftEditor outcome={outcome} onDraft={onDraft} onAcceptDraft={onAcceptDraft} />
       ) : (
         (outcome.status === 'skipped' || outcome.status === 'rejected' || !accepted) && (
           <KeyPicker value={outcome.key} disabled={busy} onChange={(key) => void correct(key)} />
         )
       )}
+    </div>
+  );
+}
+
+/**
+ * Upload a stored document, once, on purpose.
+ *
+ * Filling never attaches a file on its own: most job boards run their own
+ * résumé parser the moment one lands and then offer to overwrite the form,
+ * which turns an unattended upload into a dialog the user cannot get out of.
+ * See `withholdDocuments` in `core/session`.
+ */
+function AttachButton({
+  outcome,
+  onAttach,
+}: {
+  outcome: FillOutcome;
+  onAttach: OverlayProps['onAttach'];
+}) {
+  const [state, setState] = useState<{ kind: 'idle' | 'busy' | 'done' | 'failed'; detail?: string }>({
+    kind: 'idle',
+  });
+
+  if (state.kind === 'done') {
+    return <span className="muted">✓ Attached {state.detail}</span>;
+  }
+
+  return (
+    <div onClick={(event) => event.stopPropagation()}>
+      <button
+        className="btn btn-primary"
+        disabled={state.kind === 'busy'}
+        onClick={() => {
+          setState({ kind: 'busy' });
+          void onAttach(outcome).then((result) =>
+            setState({ kind: result.ok ? 'done' : 'failed', detail: result.detail }),
+          );
+        }}
+      >
+        {state.kind === 'busy' ? 'Attaching…' : 'Attach my document'}
+      </button>
+      {state.kind === 'failed' && <span className="muted">{state.detail}</span>}
     </div>
   );
 }
@@ -289,7 +475,7 @@ function DraftEditor({
     }
   };
 
-  if (used) return <span className="muted">✅ Answer written. Review it before you submit.</span>;
+  if (used) return <span className="muted">✓ Answer written. Review it before you submit.</span>;
 
   return (
     <div onClick={(event) => event.stopPropagation()}>
@@ -328,7 +514,9 @@ function DraftEditor({
 function Footer({ phase, onRefill }: OverlayProps) {
   return (
     <div className="foot">
-      <span className="muted">Never auto-submits. Review &amp; submit.</span>
+      <span className="pledge">
+        <span aria-hidden>🔒</span> Never submits for you
+      </span>
       <button className="btn" onClick={onRefill} disabled={phase.kind === 'filling'}>
         Re-fill
       </button>

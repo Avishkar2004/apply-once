@@ -50,6 +50,8 @@ export const CANONICAL_KEYS = [
   'work[].endDate',
   'work[].current',
   'work[].description',
+  'work.totalYears',
+  'work.totalMonths',
 
   // — education (repeating) —
   'education[].school',
@@ -78,7 +80,11 @@ export const CANONICAL_KEYS = [
   'preferences.desiredSalary.amount',
   'preferences.desiredSalary.currency',
   'preferences.desiredSalary.period',
+  'preferences.currentSalary.amount',
+  'preferences.currentSalary.currency',
   'preferences.noticePeriod',
+  'preferences.noticePeriodDays',
+  'preferences.preferredLocations',
   'preferences.earliestStartDate',
   'preferences.remotePreference',
   'preferences.willingToRelocate',
@@ -185,6 +191,11 @@ export const CANONICAL_KEY_META: Record<CanonicalKey, CanonicalKeyMeta> = {
   'work[].endDate': { label: 'Employment end date', type: 'date', group: 'Work', repeatsOver: 'work' },
   'work[].current': { label: 'Currently employed here', type: 'boolean', group: 'Work', repeatsOver: 'work' },
   'work[].description': { label: 'Role description', type: 'longtext', group: 'Work', repeatsOver: 'work' },
+  // Ubiquitous on ATS forms outside the US ("Total Experience (Years)").
+  // Derived from the work history rather than asked for twice.
+  'work.totalYears': { label: 'Total years of experience', type: 'number', group: 'Work', derived: true },
+  // The months half of the "[n] years [n] months" pair those same forms use.
+  'work.totalMonths': { label: 'Experience — extra months', type: 'number', group: 'Work', derived: true },
 
   'education[].school': { label: 'School', type: 'text', group: 'Education', repeatsOver: 'education' },
   'education[].degree': { label: 'Degree', type: 'choice', group: 'Education', repeatsOver: 'education' },
@@ -209,7 +220,16 @@ export const CANONICAL_KEY_META: Record<CanonicalKey, CanonicalKeyMeta> = {
   'preferences.desiredSalary.amount': { label: 'Desired salary', type: 'number', group: 'Preferences' },
   'preferences.desiredSalary.currency': { label: 'Salary currency', type: 'choice', group: 'Preferences' },
   'preferences.desiredSalary.period': { label: 'Salary period', type: 'choice', group: 'Preferences' },
+  // Asked on virtually every Indian application ("Current CTC"), and separately
+  // from the expected figure — the two are never the same number.
+  'preferences.currentSalary.amount': { label: 'Current salary / CTC', type: 'number', group: 'Preferences' },
+  'preferences.currentSalary.currency': { label: 'Current salary currency', type: 'choice', group: 'Preferences' },
   'preferences.noticePeriod': { label: 'Notice period', type: 'text', group: 'Preferences' },
+  // "Available to join (in days)" is a required numeric field on most Indian
+  // applications; the free-text answer above cannot satisfy it.
+  'preferences.noticePeriodDays': { label: 'Notice period (days)', type: 'number', group: 'Preferences' },
+  // Where the applicant wants to work — never confuse this with where they live.
+  'preferences.preferredLocations': { label: 'Preferred work locations', type: 'list', group: 'Preferences' },
   'preferences.earliestStartDate': { label: 'Earliest start date', type: 'date', group: 'Preferences' },
   'preferences.remotePreference': { label: 'Remote preference', type: 'choice', group: 'Preferences' },
   'preferences.willingToRelocate': { label: 'Willing to relocate', type: 'boolean', group: 'Preferences' },

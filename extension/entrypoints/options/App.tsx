@@ -18,6 +18,47 @@ const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'activity', label: 'Activity' },
 ];
 
+/**
+ * Where the toolbar button works.
+ *
+ * The extension only injects on the host allow-list (§6.5), so on any other
+ * page the button has nothing to talk to. Saying which sites those are is the
+ * difference between "it does nothing" and "not this page".
+ */
+function HowToUse() {
+  const [dismissed, setDismissed] = useState(false);
+  if (dismissed) return null;
+
+  return (
+    <div className="mb-6 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm dark:border-indigo-900 dark:bg-indigo-950">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="font-semibold text-indigo-900 dark:text-indigo-100">
+            How to fill an application
+          </p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5 text-indigo-900/90 dark:text-indigo-100/90">
+            <li>Fill in your profile below and save it.</li>
+            <li>Open a job application on one of the supported sites.</li>
+            <li>Click the AutoFill icon in your toolbar.</li>
+          </ol>
+          <p className="mt-2 text-indigo-900/80 dark:text-indigo-100/80">
+            Supported: Greenhouse, Lever, Ashby, SmartRecruiters, Workday, iCIMS, Taleo. On any
+            other page the button opens this editor instead. AutoFill never submits an application
+            for you.
+          </p>
+        </div>
+        <button
+          onClick={() => setDismissed(true)}
+          className="shrink-0 text-indigo-700 hover:text-indigo-900 dark:text-indigo-300"
+          aria-label="Dismiss"
+        >
+          ×
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const { status, error, setStatus, refresh } = useSessionStatus();
   const [tab, setTab] = useState<Tab>('profile');
@@ -50,6 +91,7 @@ export function App() {
         </header>
 
         {error && <Banner tone="error">{error}</Banner>}
+        {status?.unlocked && <HowToUse />}
         {!status ? (
           <p className="text-sm text-slate-500">Loading…</p>
         ) : (

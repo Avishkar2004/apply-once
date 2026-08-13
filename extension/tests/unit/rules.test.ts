@@ -161,3 +161,71 @@ describe('autocomplete rules', () => {
     expect(hit?.key).toBe('personal.firstName');
   });
 });
+
+/**
+ * Labels taken verbatim from a live Keka application form (smartdocs.keka.com).
+ *
+ * Every one of these was reported as ⬜ "No matching profile field" by the
+ * review panel before these rules existed. Indian job boards — Naukri, Keka,
+ * Darwinbox, Zoho Recruit — share this vocabulary almost word for word, so the
+ * corpus is the fix and the regression guard at once.
+ */
+describe('vocabulary outside the US', () => {
+  const cases: Array<[string[], CanonicalKey, Partial<FieldDescriptorDto>?]> = [
+    // Notice period, asked the way every Indian board asks it. A label that
+    // names its unit wants a number; the rest take the free-text answer.
+    [['Available To Join (in days) *'], 'preferences.noticePeriodDays', { kind: 'number' }],
+    [['Notice period in days'], 'preferences.noticePeriodDays', { kind: 'number' }],
+    [['How soon can you join?'], 'preferences.noticePeriod'],
+    [['Joining time'], 'preferences.noticePeriod'],
+    [['Notice Period'], 'preferences.noticePeriod'],
+    [['Available to join'], 'preferences.noticePeriod'],
+
+    // Where you want to work, which is not where you live.
+    [['Preferred Location *'], 'preferences.preferredLocations'],
+    [['Preferred locations'], 'preferences.preferredLocations'],
+    [['Preferred city'], 'preferences.preferredLocations'],
+    [['Desired work location'], 'preferences.preferredLocations'],
+    [['Current Location'], 'contact.address.full'],
+
+    // Current and expected compensation are two questions, never one.
+    [['Current Salary *'], 'preferences.currentSalary.amount', { kind: 'number' }],
+    [['Current CTC'], 'preferences.currentSalary.amount', { kind: 'number' }],
+    [['Present package'], 'preferences.currentSalary.amount', { kind: 'number' }],
+    [['Expected CTC'], 'preferences.desiredSalary.amount', { kind: 'number' }],
+    [['Expected Salary'], 'preferences.desiredSalary.amount', { kind: 'number' }],
+
+    // Total experience, whole and split.
+    [['Experience *'], 'work.totalYears', { kind: 'number' }],
+    [['Total Experience'], 'work.totalYears'],
+    [['work experience years'], 'work.totalYears', { kind: 'number' }],
+    [['work experience months'], 'work.totalMonths', { kind: 'number' }],
+
+    // An unlabelled upload box is the résumé slot.
+    [['Add attachment 10MB max size'], 'documents.resume', { kind: 'file' }],
+    [['Upload'], 'documents.resume', { kind: 'file' }],
+  ];
+
+  it.each(cases)('maps %s → %s', (labels, expected, extra) => {
+    expect(mapWithRules(field(labels, extra ?? {}))?.key).toBe(expected);
+  });
+
+  it('does not mistake the expected figure for the current one', () => {
+    expect(mapWithRules(field(['Expected CTC'], { kind: 'number' }))?.key).not.toBe(
+      'preferences.currentSalary.amount',
+    );
+  });
+
+  it('leaves a written question about experience to the answer generator', () => {
+    // A textarea is not a "how many years" box, whatever the label says.
+    expect(mapWithRules(field(['Describe your experience'], { kind: 'textarea' }))?.key).not.toBe(
+      'work.totalYears',
+    );
+  });
+
+  it('still prefers a named document over the generic attachment rule', () => {
+    expect(mapWithRules(field(['Attach your cover letter'], { kind: 'file' }))?.key).toBe(
+      'documents.coverLetter',
+    );
+  });
+});

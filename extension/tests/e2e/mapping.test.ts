@@ -43,7 +43,14 @@ const PROFILE_FIXTURE: Profile = PROFILE.parse({
     },
   },
   links: { linkedin: 'https://linkedin.com/in/ada', github: 'https://github.com/ada' },
-  work: [{ company: 'Analytical Engines Ltd', title: 'Principal Engineer', current: true }],
+  work: [
+    {
+      company: 'Analytical Engines Ltd',
+      title: 'Principal Engineer',
+      startDate: '2019-01',
+      current: true,
+    },
+  ],
   workAuth: { authorizedIn: ['GB'], requiresSponsorship: false },
   preferences: { desiredSalary: { amount: 150000, currency: 'GBP', period: 'year' }, willingToRelocate: true },
   documents: { resume: { blobId: 'blob-1', filename: 'ada-lovelace-cv.pdf' } },
@@ -269,6 +276,65 @@ describe('Lever application', () => {
   it('picks the right option for a Yes/No select', async () => {
     const { filledByLabel } = await runPipeline(html, href);
     expect(filledByLabel.get('Are you willing to relocate?')).toBe('Yes');
+  });
+});
+
+/**
+ * The case the product actually lives or dies on (ARCHITECTURE.md G2 — "handle
+ * unknown/custom forms gracefully").
+ *
+ * No adapter, no stable ids, no `autocomplete`, and labels marked required with
+ * a decorated asterisk. This is the shape used by Keka, Zoho Recruit,
+ * Darwinbox, Freshteam and most in-house career pages.
+ */
+describe('a generic form on an unknown ATS', () => {
+  const html = fixture('generic-application.html');
+  const href = 'https://smartdocs.keka.com/careers/applyjob/136647';
+
+  it('is claimed by no adapter — brand markers must not over-match', async () => {
+    const { adapter } = await runPipeline(html, href);
+    // `.application-form` is a class name half the web uses. An adapter
+    // claiming this page would map another ATS's selectors onto it.
+    expect(adapter).toBeUndefined();
+  });
+
+  it('reads a label that a required-asterisk splits across nodes', async () => {
+    const { keyByLabel } = await runPipeline(html, href);
+
+    // <span>First Name<em>*</em></span> — taking the last text node yields "*"
+    // and silently loses every required field, i.e. the ones that matter most.
+    expect(keyByLabel.get('First Name*')).toBe('personal.firstName');
+    expect(keyByLabel.get('Last Name*')).toBe('personal.lastName');
+    expect(keyByLabel.get('Email Address*')).toBe('contact.email');
+    expect(keyByLabel.get('Mobile Number*')).toBe('contact.phone');
+    expect(keyByLabel.get('Upload Resume*')).toBe('documents.resume');
+  });
+
+  it('maps the vocabulary non-US boards actually use', async () => {
+    const { keyByLabel } = await runPipeline(html, href);
+
+    expect(keyByLabel.get('Current Location')).toBe('contact.address.full');
+    expect(keyByLabel.get('Current Company')).toBe('work[].company');
+    expect(keyByLabel.get('Current Designation')).toBe('work[].title');
+    expect(keyByLabel.get('Total Experience (Years)')).toBe('work.totalYears');
+    expect(keyByLabel.get('Expected CTC')).toBe('preferences.desiredSalary.amount');
+    expect(keyByLabel.get('Notice Period')).toBe('preferences.noticePeriod');
+    expect(keyByLabel.get('Highest Qualification')).toBe('education[].degree');
+  });
+
+  it('maps every field on the form with rules alone — no adapter, no LLM', async () => {
+    const { mappings, fields } = await runPipeline(html, href);
+    const unmapped = mappings.filter((mapping) => mapping.target === 'UNMAPPABLE');
+
+    expect(fields).toHaveLength(14);
+    expect(unmapped).toEqual([]);
+  });
+
+  it('derives total experience from the work history', async () => {
+    const { filledByLabel } = await runPipeline(html, href);
+    // The fixture profile starts in 2019 and is current, so this is a number
+    // rather than a blank — and it was never typed in twice.
+    expect(Number(filledByLabel.get('Total Experience (Years)'))).toBeGreaterThanOrEqual(0);
   });
 });
 

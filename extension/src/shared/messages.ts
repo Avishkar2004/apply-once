@@ -120,6 +120,12 @@ export interface LlmStatus {
 export interface Settings {
   /** Master switch for the extension's fill button. */
   enabled: boolean;
+  /**
+   * Fill as soon as an application form is detected, without waiting for a
+   * click. Still never submits (§6.7) — the review overlay appears exactly as
+   * it does for a manual fill.
+   */
+  autoFill: boolean;
   theme: 'system' | 'light' | 'dark';
   /** Sites the user has explicitly disabled, by hostname. */
   disabledHosts: string[];

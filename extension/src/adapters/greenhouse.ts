@@ -14,7 +14,10 @@ export const greenhouse: AtsAdapter = {
 
   matches(url, doc) {
     if (url.hostname.endsWith('greenhouse.io')) return true;
-    return doc.querySelector('#application_form, form[action*="greenhouse.io"], #grnhse_app') !== null;
+    // Only markers that name Greenhouse. `#application_form` used to be here and
+    // is far too common a id on in-house career pages; claiming one of those
+    // would map Greenhouse's selectors onto an unrelated form.
+    return doc.querySelector('form[action*="greenhouse.io"], #grnhse_app') !== null;
   },
 
   fieldMap: {

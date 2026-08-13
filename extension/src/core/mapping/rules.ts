@@ -76,12 +76,21 @@ export const LABEL_RULES: LabelRule[] = [
   { id: 'email', key: 'contact.email', match: /\be ?mail\b/, not: /\b(confirm|verify|re enter|alternate|secondary|reference|employer)\b/ },
   { id: 'phone-country-code', key: 'contact.phoneCountryCode', match: /\b(country code|dial code|phone code|idd)\b/ },
   { id: 'phone', key: 'contact.phone', match: /\b(phone|mobile|cell|telephone|contact number|tel)\b/, not: /\b(country code|dial code|reference|employer|emergency|extension)\b/ },
+  // Ahead of the whole address block on purpose. "Preferred Location" and
+  // "Preferred City" are questions about the *job*, and every generic address
+  // rule below would otherwise claim them and fill in where the applicant
+  // happens to live. A preference by key, placed here by necessity.
+  { id: 'preferred-location', key: 'preferences.preferredLocations', match: /\b(preferred|desired|interested in|willing to work in) (job |work )?(locations?|cit(y|ies))\b|\bpreferred work location\b|\bwhere would you like to work\b|\blocation applying for\b/ },
   { id: 'address-line1', key: 'contact.address.line1', match: /\b(address line 1|street address|address 1|addr1|street|house number)\b/ },
   { id: 'address-line2', key: 'contact.address.line2', match: /\b(address line 2|address 2|addr2|apt|apartment|suite|unit)\b/ },
   { id: 'city', key: 'contact.address.city', match: /\b(city|town|locality|municipality)\b/, not: /\b(country|birth)\b/ },
   { id: 'state', key: 'contact.address.state', match: /\b(state|province|region|county|prefecture)\b/, not: /\b(united states|visa|employment|marital|veteran|disability)\b/ },
   { id: 'postal-code', key: 'contact.address.postalCode', match: /\b(zip|postal|post ?code|pincode|postcode)\b/ },
   { id: 'country', key: 'contact.address.country', match: /\b(country|nation)\b/, not: /\b(code|citizenship|authorized|authorised|eligible|work in)\b/ },
+  // "Current Location" on an application means where the applicant lives, not
+  // where the job is — the job-location rule above has already claimed that
+  // wording, so this only sees what it left.
+  { id: 'current-location', key: 'contact.address.full', match: /\b(current|present|your) location\b|\blocation\b/, not: /\b(job|work|office|posting|preferred|desired)\b/ },
   { id: 'address-full', key: 'contact.address.full', match: /\b(address|residence|where do you live)\b/, not: /\b(email|line 1|line 2|ip)\b/ },
 
   // ─────────────── links ───────────────
@@ -96,10 +105,22 @@ export const LABEL_RULES: LabelRule[] = [
   { id: 'cover-letter', key: 'documents.coverLetter', match: /\bcover letter\b/, kinds: ['file'] },
   { id: 'transcript', key: 'documents.transcript', match: /\btranscript\b/, kinds: ['file'] },
   { id: 'portfolio-file', key: 'documents.portfolio', match: /\b(portfolio|work sample|writing sample)\b/, kinds: ['file'] },
+  // Last resort for a file input. Plenty of forms label the résumé slot
+  // "Add attachment" or nothing at all, and every specific document rule above
+  // has already had its turn, so an unclaimed upload box is the résumé.
+  { id: 'attachment', key: 'documents.resume', match: /\b(attach|attachment|upload|browse|choose file|document)\b/, kinds: ['file'] },
 
   // ─────────────── work history ───────────────
   { id: 'work-company', key: 'work[].company', match: /\b(company|employer|organisation|organization)\s?(name)?\b/, not: /\b(school|university|reference|why|about|size|website|url)\b/ },
-  { id: 'work-title', key: 'work[].title', match: /\b(job title|position title|current title|your title|role title|title)\b/, not: /\b(reference|mr|mrs|ms|dr|degree|job you|position you are applying)\b/ },
+  { id: 'work-title', key: 'work[].title', match: /\b(job title|position title|current title|your title|role title|designation|title)\b/, not: /\b(reference|mr|mrs|ms|dr|degree|job you|position you are applying)\b/ },
+  // "Experience" boxes, most specific first. Forms outside the US often split
+  // the figure across two adjacent controls, so the months half has to be
+  // claimed before anything can mistake it for the years half.
+  { id: 'work-experience-months', key: 'work.totalMonths', match: /\bexperience\b[\w ]*\bmonths?\b|\bmonths?\b[\w ]*\bexperience\b/, kinds: ['number', 'select', 'combobox', 'text'] },
+  { id: 'work-experience-years', key: 'work.totalYears', match: /\b(total|years of|overall|relevant) experience\b|\bexperience in years\b|\byears of exp\b|\bexperience\b[\w ]*\byears?\b/ },
+  // A bare "Experience *" beside a number box means the same thing. Restricted
+  // to short controls so "Tell us about your experience" stays a written answer.
+  { id: 'work-experience', key: 'work.totalYears', match: /\bexperience\b/, not: /\b(describe|tell us|summar\w*|detail|previous|why|no experience|relevant to)\b/, kinds: ['number', 'select', 'combobox', 'text'] },
   { id: 'work-location', key: 'work[].location', match: /\b(job location|work location|office location)\b/ },
   { id: 'work-start', key: 'work[].startDate', match: /\b(employment )?start(ed|ing)? date\b|\bfrom date\b/, not: /\b(school|education|degree|available|earliest|study)\b/ },
   { id: 'work-end', key: 'work[].endDate', match: /\b(employment )?end(ed|ing)? date\b|\bto date\b/, not: /\b(school|education|degree|study)\b/ },
@@ -128,10 +149,19 @@ export const LABEL_RULES: LabelRule[] = [
   { id: 'needs-relocation', key: 'workAuth.needsRelocation', match: /\b(need.*relocat|require.*relocat)\b/ },
 
   // ─────────────── preferences ───────────────
-  { id: 'desired-salary', key: 'preferences.desiredSalary.amount', match: /\b(salary|compensation|pay|rate) (expectation|requirement|desired|range)?\b|\bdesired (salary|compensation)\b|\bexpected (salary|ctc)\b/, not: /\b(currency|period|current salary)\b/ },
+  // Current before desired: an application that asks for both puts them side by
+  // side, and answering "expected" into the "current" box is a lie rather than
+  // a typo. First-match-wins does the rest.
+  { id: 'current-salary', key: 'preferences.currentSalary.amount', match: /\b(current|present|existing|drawn) (salary|ctc|compensation|pay|package|remuneration)\b|\bcurrent annual\b/, not: /\b(currency|period)\b/ },
+  { id: 'current-salary-currency', key: 'preferences.currentSalary.currency', match: /\bcurrent (salary )?currency\b/ },
+  { id: 'desired-salary', key: 'preferences.desiredSalary.amount', match: /\b(salary|compensation|pay|rate) (expectation|requirement|desired|range)?\b|\bdesired (salary|compensation)\b|\bexpected (salary|ctc|package)\b/, not: /\b(currency|period|current (salary|ctc|compensation|package))\b/ },
   { id: 'salary-currency', key: 'preferences.desiredSalary.currency', match: /\b(salary )?currency\b/ },
   { id: 'salary-period', key: 'preferences.desiredSalary.period', match: /\b(per (year|hour)|salary period|pay period|annual or hourly)\b/ },
-  { id: 'notice-period', key: 'preferences.noticePeriod', match: /\bnotice period\b/ },
+  // "Available to join" is how the same question is asked across Indian boards,
+  // and it is usually a required *numeric* box. The days rule has to come first
+  // so "(in days)" is not answered with the free-text "2 months".
+  { id: 'notice-period-days', key: 'preferences.noticePeriodDays', match: /\b(notice period|available to join|joining time|join)\b[\w ]*\bdays\b|\bdays\b[\w ]*\b(to join|notice)\b/, kinds: ['number', 'text', 'select', 'combobox'] },
+  { id: 'notice-period', key: 'preferences.noticePeriod', match: /\bnotice period\b|\bavailable to join\b|\bjoining (time|period|days)\b|\bhow soon can you join\b|\bdays to join\b/ },
   { id: 'start-date', key: 'preferences.earliestStartDate', match: /\b(earliest|available|availability|when can you) (start|start date|begin)\b|\bstart date\b/, not: /\b(employment|school|education|previous|current job)\b/ },
   { id: 'remote-preference', key: 'preferences.remotePreference', match: /\b(remote|hybrid|onsite|on site|work (location )?preference|work arrangement)\b/, not: /\b(job location|office location)\b/ },
   { id: 'willing-to-relocate', key: 'preferences.willingToRelocate', match: /\b(willing to relocate|open to relocation|relocat\w*)\b/, not: /\bneed\b/ },

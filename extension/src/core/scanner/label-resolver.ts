@@ -1,4 +1,4 @@
-import { buildLabelBlob, humanizeAttribute, squashWhitespace } from '@autofill/core';
+import { buildLabelBlob, humanizeAttribute, normalizeLabel, squashWhitespace } from '@autofill/core';
 
 /**
  * Label resolution, in the priority order of ARCHITECTURE.md §3.1:
@@ -108,28 +108,51 @@ function precedingText(el: Element): string | undefined {
   return undefined;
 }
 
-/** Text content of `container` that appears before `stopAt` in document order. */
+/**
+ * The text immediately before `stopAt` inside `container`.
+ *
+ * Whole elements, not individual text nodes. A label is routinely split across
+ * nodes by required-field decoration:
+ *
+ *     <span class="field-label">First Name<em>*</em></span><input>
+ *
+ * Taking the last *text node* yields `"*"` and loses the label entirely — which
+ * silently breaks precisely the fields a form marks as required, i.e. name,
+ * email and phone. Taking the last *element* yields `"First Name*"`, and
+ * `normalizeLabel` drops the asterisk.
+ *
+ * Anything that normalises to nothing (a lone `*`, a colon, an icon) is skipped
+ * rather than returned, so decoration between the label and the input does not
+ * mask it either.
+ */
 function lastTextBefore(container: Element, stopAt: Element): string | undefined {
-  const walker = container.ownerDocument.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
-    acceptNode: (node) =>
-      node.textContent && node.textContent.trim().length > 0
-        ? NodeFilter.FILTER_ACCEPT
-        : NodeFilter.FILTER_REJECT,
-  });
+  const meaningful = (text: string | null | undefined): string | undefined => {
+    const squashed = squashWhitespace(text ?? '');
+    // `normalizeLabel` strips `*`, `(required)` and punctuation; if nothing
+    // survives, this was decoration rather than a label.
+    return squashed && normalizeLabel(squashed) ? squashed : undefined;
+  };
 
-  let best: string | undefined;
-  let current = walker.nextNode();
-  while (current) {
-    const position = stopAt.compareDocumentPosition(current);
-    // The text node must come before the field and not be inside it.
-    if (position & Node.DOCUMENT_POSITION_PRECEDING && !(position & Node.DOCUMENT_POSITION_CONTAINED_BY)) {
-      best = squashWhitespace(current.textContent ?? '');
-    } else if (position & Node.DOCUMENT_POSITION_FOLLOWING) {
-      break;
-    }
-    current = walker.nextNode();
+  // Walk backwards from the field through its preceding siblings at this level.
+  let cursor: Node | null = stopAt.previousSibling;
+  while (cursor) {
+    const text = meaningful(cursor.textContent);
+    if (text) return text;
+    cursor = cursor.previousSibling;
   }
-  return best;
+
+  // Nothing beside it — the label may wrap both, as in
+  // `<div>Email <input></div>`. Take the container's own text minus the
+  // field's, which is what a person reading the page would call this input.
+  if (container !== stopAt && container.contains(stopAt)) {
+    const clone = container.cloneNode(true) as Element;
+    for (const control of clone.querySelectorAll('input, select, textarea, option, button')) {
+      control.remove();
+    }
+    return meaningful(clone.textContent);
+  }
+
+  return undefined;
 }
 
 /** 7. `name` and `id`, humanised. Two separate signals; often only one is honest. */
