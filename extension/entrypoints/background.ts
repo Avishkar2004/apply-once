@@ -214,8 +214,10 @@ export default defineBackground(() => {
     'settings:get': () => getSettings(),
     'settings:set': (patch) => setSettings(patch),
 
+    // Deliberately not `openOptionsPage()` — see `openProfileEditor`. The panel
+    // and the toolbar button must land in the same place, every time.
     'ui:open-options': async () => {
-      await browser.runtime.openOptionsPage();
+      await openProfileEditor();
       return { ok: true as const };
     },
   });

@@ -164,6 +164,10 @@ export class PageSession {
       hostname: url.hostname,
       url: url.href,
       ...(this.adapter ? { adapter: this.adapter.name } : {}),
+      // Scraped above by `readPageContext`; this is what makes the history read
+      // as a list of applications rather than a list of domains.
+      ...(this.pageContext.jobTitle ? { jobTitle: this.pageContext.jobTitle } : {}),
+      ...(this.pageContext.company ? { company: this.pageContext.company } : {}),
       outcomes,
       summary: summarise(outcomes, Math.round(performance.now() - started)),
       startedAt: startedAt.toISOString(),

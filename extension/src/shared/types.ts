@@ -167,6 +167,15 @@ export interface FillSession {
   hostname: string;
   url: string;
   adapter?: string;
+  /**
+   * What this application is *for*, scraped from the page (§3.2).
+   *
+   * Carried so the audit log can record an application rather than a hostname —
+   * "Senior Engineer at Keka" is the thing the user is tracking; the domain it
+   * happened to be hosted on is not.
+   */
+  jobTitle?: string;
+  company?: string;
   outcomes: FillOutcome[];
   summary: FillSummary;
   startedAt: string;

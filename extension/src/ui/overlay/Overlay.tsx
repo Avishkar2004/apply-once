@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import type { CanonicalKey } from '@autofill/core';
-import type { FillOutcome, FillSession } from '@/shared/types';
+import type { FillOutcome, FillSession, FillSummary } from '@/shared/types';
 import { KeyPicker } from './KeyPicker';
 
 /**
@@ -178,6 +178,20 @@ const FURNITURE_LABEL =
 /** A placeholder or a unit, not a question. */
 const NOT_A_QUESTION = /^(select|choose|none|n\/?a|inr|usd|rs\.?|₹|\$|—|–|-|\*)$/i;
 
+/**
+ * Which end state the panel is reporting.
+ *
+ * Split out because getting it wrong is not a cosmetic matter: a session that
+ * found no form at all shares every count with one that filled everything, and
+ * reporting "Everything mapped cleanly — 0 fields" for the first tells the user
+ * their empty page was a success.
+ */
+export function summaryHeadline(summary: FillSummary): 'no-fields' | 'nothing-filled' | 'filled' {
+  if (summary.total === 0) return 'no-fields';
+  if (summary.filled === 0) return 'nothing-filled';
+  return 'filled';
+}
+
 export function isFurniture(outcome: FillOutcome): boolean {
   if (outcome.status !== 'skipped') return false;
   if (outcome.skipReason === 'free-text' || outcome.skipReason === 'needs-attach') return false;
@@ -199,6 +213,8 @@ function ResultBody({
   onDraft,
   onAcceptDraft,
   onAttach,
+  onOpenOptions,
+  onRefill,
 }: { session: FillSession } & OverlayProps) {
   const groups = useMemo(() => {
     const attention: FillOutcome[] = [];
@@ -223,15 +239,60 @@ function ResultBody({
 
   const rowProps = { onHighlight, onCorrect, onDraft, onAcceptDraft, onAttach };
   const nothingLeft = groups.attention.length === 0 && groups.idle.length === 0;
+  const { filled, total, durationMs } = session.summary;
+  const headline = summaryHeadline(session.summary);
+
+  // There was no form. "Everything mapped cleanly — 0 fields" congratulates the
+  // user for nothing and hides the two things that actually cause this: the
+  // form has not mounted yet, or it is inside a frame we cannot reach.
+  if (headline === 'no-fields') {
+    return (
+      <div className="notice">
+        <strong>No form fields here</strong>
+        <span className="muted">
+          AutoFill found nothing to fill on this page. If the application form is still loading, or you
+          have not opened it yet, scan again once it is on screen.
+        </span>
+        {unreachableFrames > 0 && (
+          <span className="muted">
+            {unreachableFrames} embedded {unreachableFrames === 1 ? 'frame' : 'frames'} could not be read
+            — the form may well be inside {unreachableFrames === 1 ? 'it' : 'them'}.
+          </span>
+        )}
+        <div className="row-actions">
+          <button className="btn btn-primary" onClick={onRefill}>
+            Scan again
+          </button>
+          <button className="btn" onClick={onOpenOptions}>
+            Open my profile
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="body">
-      {nothingLeft && (
+      {/* Fields exist but nothing went in — almost always an empty profile,
+          which is worth saying plainly and offering a way to fix. */}
+      {headline === 'nothing-filled' && (
+        <div className="notice">
+          <strong>Nothing was filled</strong>
+          <span className="muted">
+            AutoFill read {total} field{total === 1 ? '' : 's'} here but your profile had nothing to put
+            in {total === 1 ? 'it' : 'them'}. Fill your details in once and this page fills itself.
+          </span>
+          <button className="btn btn-primary" onClick={onOpenOptions}>
+            Open my profile
+          </button>
+        </div>
+      )}
+      {nothingLeft && headline === 'filled' && (
         <div className="notice">
           <strong>Everything mapped cleanly.</strong>
           <span className="muted">
-            {session.summary.filled} fields in {(session.summary.durationMs / 1000).toFixed(1)}s. Read them
-            over before you submit.
+            {filled} field{filled === 1 ? '' : 's'} in {(durationMs / 1000).toFixed(1)}s. Read them over
+            before you submit.
           </span>
         </div>
       )}
@@ -511,15 +572,22 @@ function DraftEditor({
   );
 }
 
-function Footer({ phase, onRefill }: OverlayProps) {
+function Footer({ phase, onRefill, onOpenOptions }: OverlayProps) {
   return (
     <div className="foot">
       <span className="pledge">
         <span aria-hidden>🔒</span> Never submits for you
       </span>
-      <button className="btn" onClick={onRefill} disabled={phase.kind === 'filling'}>
-        Re-fill
-      </button>
+      {/* The panel used to be a dead end: whatever it reported, there was no way
+          from here to the profile that would fix it. */}
+      <span className="row-actions">
+        <button className="btn btn-ghost" onClick={onOpenOptions} title="Edit your profile and settings">
+          Profile
+        </button>
+        <button className="btn" onClick={onRefill} disabled={phase.kind === 'filling'}>
+          Re-fill
+        </button>
+      </span>
     </div>
   );
 }

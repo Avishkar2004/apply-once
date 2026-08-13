@@ -72,12 +72,28 @@ export interface OverrideRecord {
   createdAt: string;
 }
 
+/**
+ * One application, not one fill.
+ *
+ * Filling the same form three times is one thing that happened to the user, so
+ * a repeat updates the row and bumps `fills` rather than appending. Without
+ * that, the history reads as noise the moment anyone corrects a field and
+ * re-fills.
+ */
 export interface AuditEntry {
   id?: number;
   hostname: string;
   url: string;
   adapter?: string;
+  /** Scraped from the page (§3.2) — what turns a hostname into an application. */
+  jobTitle?: string;
+  company?: string;
+  /** Most recent fill. */
   at: string;
+  /** First fill, so the history can say when an application was started. */
+  firstAt?: string;
+  /** Times filled. Absent on rows written before v3; read as 1. */
+  fills?: number;
   filled: number;
   lowConfidence: number;
   rejected: number;
@@ -127,6 +143,14 @@ export class AutoFillDatabase extends Dexie {
     // is a range query over it on every sync (§4.3).
     this.version(2).stores({
       events: 'id, syncedSeq, createdAt',
+    });
+
+    // v3 indexes `auditLog.url` so a repeat fill can find the application it
+    // belongs to instead of appending a duplicate row. The added `jobTitle`,
+    // `company`, `firstAt` and `fills` fields need no declaration — Dexie only
+    // wants the indexed ones — and existing rows simply lack them.
+    this.version(3).stores({
+      auditLog: '++id, hostname, at, url',
     });
   }
 }

@@ -63,7 +63,11 @@ export interface AuditEntryDto {
   hostname: string;
   url: string;
   adapter?: string;
+  jobTitle?: string;
+  company?: string;
   at: string;
+  firstAt?: string;
+  fills?: number;
   filled: number;
   lowConfidence: number;
   rejected: number;
@@ -87,7 +91,9 @@ export interface SyncCredentialsDto {
 export interface SiteAccuracyDto {
   hostname: string;
   adapter?: string;
+  /** Distinct applications; `fills` counts repeats of the same form. */
   samples: number;
+  fills: number;
   fillRate: number;
   correctionRate: number;
   needsAttention: boolean;

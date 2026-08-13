@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { isFurniture } from '@/ui/overlay/Overlay';
-import type { FillOutcome, SkipReason } from '@/shared/types';
+import { isFurniture, summaryHeadline } from '@/ui/overlay/Overlay';
+import type { FillOutcome, FillSummary, SkipReason } from '@/shared/types';
 
 /**
  * What the review panel demotes to a tally instead of a row.
@@ -76,5 +76,51 @@ describe('kept as a row', () => {
 
   it('an EEO field the user chose not to share — the reason is the point', () => {
     expect(isFurniture(outcome('Gender *', { skipReason: 'eeo-disabled' }))).toBe(false);
+  });
+});
+
+/**
+ * Which end state the panel reports.
+ *
+ * Seen in the wild: a click that landed before the form had mounted produced
+ * "Everything mapped cleanly. 0 fields in 0.0s" — a success message for a page
+ * where nothing had happened, and no way onward from it. A session that found
+ * nothing shares every count with one that filled everything, so the three
+ * cases have to be told apart explicitly.
+ */
+describe('summaryHeadline', () => {
+  const summary = (patch: Partial<FillSummary> = {}): FillSummary => ({
+    filled: 0,
+    lowConfidence: 0,
+    rejected: 0,
+    skipped: 0,
+    total: 0,
+    durationMs: 0,
+    ...patch,
+  });
+
+  it('says there was no form when nothing was found', () => {
+    expect(summaryHeadline(summary())).toBe('no-fields');
+  });
+
+  it('does not call an empty page a clean fill', () => {
+    expect(summaryHeadline(summary())).not.toBe('filled');
+  });
+
+  it('separates "found fields, filled none" from "found nothing"', () => {
+    expect(summaryHeadline(summary({ total: 16, skipped: 16 }))).toBe('nothing-filled');
+  });
+
+  it('reports a real fill', () => {
+    expect(summaryHeadline(summary({ total: 16, filled: 10, skipped: 6 }))).toBe('filled');
+  });
+
+  it('counts a single filled field as a fill', () => {
+    expect(summaryHeadline(summary({ total: 9, filled: 1, skipped: 8 }))).toBe('filled');
+  });
+
+  it('treats a page of nothing but rejections as unfilled', () => {
+    // Every write bounced. The user needs the profile, not congratulations.
+    expect(summaryHeadline(summary({ total: 4, rejected: 4 }))).toBe('nothing-filled');
   });
 });

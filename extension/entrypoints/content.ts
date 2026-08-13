@@ -94,7 +94,13 @@ export default defineContentScript({
       filling = true;
       setPhase({ kind: 'filling', done: 0, total: 0 });
       try {
-          const result = await session.fill((done, total) =>
+        // A click can land before a React application form has mounted. The
+        // auto-fill path already polls for this; without the same wait here the
+        // button reports "no form fields here" on a page that grows one a
+        // moment later, which reads as the extension being broken.
+        if (session.scan().length === 0) await waitForFields(session, 3000);
+
+        const result = await session.fill((done, total) =>
           setPhase({ kind: 'filling', done, total }),
         );
         setPhase({ kind: 'done', session: result });
