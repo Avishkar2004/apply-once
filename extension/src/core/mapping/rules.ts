@@ -87,10 +87,11 @@ export const LABEL_RULES: LabelRule[] = [
   { id: 'state', key: 'contact.address.state', match: /\b(state|province|region|county|prefecture)\b/, not: /\b(united states|visa|employment|marital|veteran|disability)\b/ },
   { id: 'postal-code', key: 'contact.address.postalCode', match: /\b(zip|postal|post ?code|pincode|postcode)\b/ },
   { id: 'country', key: 'contact.address.country', match: /\b(country|nation)\b/, not: /\b(code|citizenship|authorized|authorised|eligible|work in)\b/ },
-  // "Current Location" on an application means where the applicant lives, not
-  // where the job is — the job-location rule above has already claimed that
-  // wording, so this only sees what it left.
-  { id: 'current-location', key: 'contact.address.full', match: /\b(current|present|your) location\b|\blocation\b/, not: /\b(job|work|office|posting|preferred|desired)\b/ },
+  // "Current Location" or "What is your location?" asks where the applicant
+  // lives, and the answer wanted is a city — "Pune", not a postal address. The
+  // job-location rule above has already claimed the wording that means the
+  // vacancy, so this only sees what it left.
+  { id: 'current-location', key: 'contact.address.city', match: /\b(current|present|your) location\b|\blocation\b/, not: /\b(job|work|office|posting|preferred|desired)\b/ },
   { id: 'address-full', key: 'contact.address.full', match: /\b(address|residence|where do you live)\b/, not: /\b(email|line 1|line 2|ip)\b/ },
 
   // ─────────────── links ───────────────

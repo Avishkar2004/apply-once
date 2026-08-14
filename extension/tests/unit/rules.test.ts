@@ -186,7 +186,14 @@ describe('vocabulary outside the US', () => {
     [['Preferred locations'], 'preferences.preferredLocations'],
     [['Preferred city'], 'preferences.preferredLocations'],
     [['Desired work location'], 'preferences.preferredLocations'],
-    [['Current Location'], 'contact.address.full'],
+    // A location question wants a city. Answering "12 MG Road, Pune,
+    // Maharashtra 411001, IN" into Naukri's "What is your location?" is wrong
+    // in a way the user has to notice and undo.
+    [['Current Location'], 'contact.address.city'],
+    [['What is your location?'], 'contact.address.city'],
+    [['Your location'], 'contact.address.city'],
+    // Explicit address wording still means the whole thing.
+    [['Full address'], 'contact.address.full'],
 
     // Current and expected compensation are two questions, never one.
     [['Current Salary *'], 'preferences.currentSalary.amount', { kind: 'number' }],

@@ -315,6 +315,21 @@ export const OVERLAY_CSS = `
 .btn-primary:hover { filter: brightness(1.08); border-color: var(--accent); }
 .btn-ghost { border-color: transparent; background: transparent; padding: 2px 6px; }
 
+.answer { display: flex; flex-direction: column; gap: 5px; }
+.answer .row-actions { flex-wrap: wrap; }
+.answer-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--fg);
+}
+.answer-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
 .draft {
   width: 100%;
   border: 1px solid var(--line);

@@ -405,11 +405,14 @@ function Row({
     }
   };
 
-  // A free-text question is answered, not mapped — it gets the draft flow
-  // instead of the canonical-key picker (§3.6). A document is attached, not
-  // typed, so it gets a button instead of either.
-  const isFreeText = outcome.skipReason === 'free-text';
+  // A question is answered, not mapped (§3.6). A document is attached, not
+  // typed. Both get something other than the canonical-key picker.
+  //
+  // `unmapped` counts as a question too: a screener like "Do you have your own
+  // laptop which you can use for work?" has no canonical key and never will,
+  // and offering only a list of profile fields for it was a dead end.
   const isDocument = outcome.skipReason === 'needs-attach';
+  const isQuestion = outcome.skipReason === 'free-text' || outcome.skipReason === 'unmapped';
 
   return (
     <div className={`row row-${outcome.status}`} onClick={() => onHighlight(outcome.fieldId)}>
@@ -435,15 +438,20 @@ function Row({
       {outcome.actual ? <div className="value">{outcome.actual}</div> : null}
       {outcome.reason && <span className="muted">{outcome.reason}</span>}
 
-      {isDocument ? (
-        <AttachButton outcome={outcome} onAttach={onAttach} />
-      ) : isFreeText ? (
-        <DraftEditor outcome={outcome} onDraft={onDraft} onAcceptDraft={onAcceptDraft} />
-      ) : (
+      {isDocument && <AttachButton outcome={outcome} onAttach={onAttach} />}
+
+      {isQuestion && (
+        <AnswerControl outcome={outcome} onDraft={onDraft} onAcceptDraft={onAcceptDraft} />
+      )}
+
+      {/* Still offer the profile mapping for an unmapped field — it may simply
+          be a field the cascade missed rather than a question. A `free-text`
+          field has already been judged prose, so it gets no picker. */}
+      {!isDocument &&
+        outcome.skipReason !== 'free-text' &&
         (outcome.status === 'skipped' || outcome.status === 'rejected' || !accepted) && (
           <KeyPicker value={outcome.key} disabled={busy} onChange={(key) => void correct(key)} />
-        )
-      )}
+        )}
     </div>
   );
 }
@@ -486,6 +494,96 @@ function AttachButton({
         {state.kind === 'busy' ? 'Attaching…' : 'Attach my document'}
       </button>
       {state.kind === 'failed' && <span className="muted">{state.detail}</span>}
+    </div>
+  );
+}
+
+/**
+ * Answer a question the profile cannot hold, once.
+ *
+ * Job boards ask screener questions no schema could anticipate — "Do you have
+ * your own laptop which you can use for work?", "Are you open to night shifts?"
+ * — and Naukri asks the same handful on every posting. They were reported as
+ * "No matching profile field" with a list of profile fields to pick from, none
+ * of which fitted, which is a dead end dressed as a choice.
+ *
+ * Answering here writes to the page *and* to the answer bank, so the next
+ * application that asks the same thing fills it without being asked (§3.6).
+ * The control follows the field: buttons for a set of options, Yes/No for a
+ * checkbox, the AI draft flow for an essay box, a text field otherwise.
+ */
+function AnswerControl({
+  outcome,
+  onDraft,
+  onAcceptDraft,
+}: {
+  outcome: FillOutcome;
+  onDraft: OverlayProps['onDraft'];
+  onAcceptDraft: OverlayProps['onAcceptDraft'];
+}) {
+  const [saved, setSaved] = useState<string | undefined>();
+  const [busy, setBusy] = useState(false);
+  const [typed, setTyped] = useState('');
+
+  const submit = async (answer: string) => {
+    const trimmed = answer.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    try {
+      if (await onAcceptDraft(outcome, trimmed)) setSaved(trimmed);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (saved) {
+    return <span className="muted">✓ “{saved}” — saved, and reused next time you are asked.</span>;
+  }
+
+  // An essay keeps the drafting flow; a one-word answer does not need a model.
+  if (outcome.kind === 'textarea') {
+    return <DraftEditor outcome={outcome} onDraft={onDraft} onAcceptDraft={onAcceptDraft} />;
+  }
+
+  const choices =
+    outcome.options && outcome.options.length > 0 && outcome.options.length <= 8
+      ? outcome.options.map((option) => option.text)
+      : outcome.kind === 'checkbox' || outcome.kind === 'radio-group'
+        ? ['Yes', 'No']
+        : undefined;
+
+  return (
+    <div className="answer" onClick={(event) => event.stopPropagation()}>
+      {choices ? (
+        <div className="row-actions">
+          {choices.map((choice) => (
+            <button key={choice} className="btn" disabled={busy} onClick={() => void submit(choice)}>
+              {choice}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="row-actions">
+          <input
+            className="answer-input"
+            value={typed}
+            disabled={busy}
+            placeholder="Type your answer"
+            onChange={(event) => setTyped(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void submit(typed);
+            }}
+          />
+          <button
+            className="btn btn-primary"
+            disabled={busy || !typed.trim()}
+            onClick={() => void submit(typed)}
+          >
+            Save
+          </button>
+        </div>
+      )}
+      <span className="muted">Answered once, then reused on every site that asks it.</span>
     </div>
   );
 }

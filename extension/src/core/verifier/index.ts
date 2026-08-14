@@ -54,6 +54,8 @@ export function verifyFills(
       confidence: attempt.confidence,
       source: attempt.source,
       signature: field.signature,
+      kind: field.kind,
+      ...(field.options ? { options: field.options } : {}),
     };
 
     if (attempt.error) {
@@ -76,6 +78,30 @@ export function verifyFills(
     });
   }
 
+  // Recalled answers (§3.6). They have no canonical key and no profile value,
+  // so they are verified purely on whether the value is on the page now.
+  for (const answered of plan.answers ?? []) {
+    const field = fields.get(answered.fieldId);
+    if (!field) continue;
+
+    const actual = readCurrentValue(field);
+    const landed = valueLanded(field, answered.answer, actual);
+
+    outcomes.push({
+      fieldId: answered.fieldId,
+      label: field.displayLabel,
+      status: landed ? 'filled' : 'rejected',
+      intended: answered.answer,
+      actual,
+      confidence: 1,
+      source: 'override',
+      signature: field.signature,
+      kind: field.kind,
+      ...(field.options ? { options: field.options } : {}),
+      ...(landed ? {} : { reason: 'Your saved answer did not stay in the field' }),
+    });
+  }
+
   for (const skip of plan.skipped) {
     const field = fields.get(skip.fieldId);
     if (!field) continue;
@@ -86,6 +112,10 @@ export function verifyFills(
       reason: SKIP_REASONS[skip.reason],
       skipReason: skip.reason,
       signature: field.signature,
+      // The panel offers a way to answer an unmapped question, and needs the
+      // control's shape to offer the right one.
+      kind: field.kind,
+      ...(field.options ? { options: field.options } : {}),
       ...(skip.key ? { key: skip.key } : {}),
     });
   }

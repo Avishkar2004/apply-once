@@ -157,6 +157,10 @@ export class PageSession {
       ...(onProgress ? { onProgress } : {}),
     });
 
+    // Screener questions the worker recognised from the answer bank. They carry
+    // no canonical key, so they are written here rather than by `executePlan`.
+    await this.writeRecalledAnswers(plan);
+
     this.hasFilled = true;
     const outcomes = verifyFills(this.fields, plan, attempts);
     const session: FillSession = {
@@ -217,6 +221,23 @@ export class PageSession {
 
     this.highlight(fieldId);
     return true;
+  }
+
+  /**
+   * Write the answers the worker recalled for this page (§3.6).
+   *
+   * These are questions the user has answered before — "Do you have your own
+   * laptop?" — so they need no approval click a second time. The verifier reads
+   * the DOM back afterwards, which is what catches a write that did not land.
+   */
+  private async writeRecalledAnswers(plan: FillPlan): Promise<void> {
+    for (const answered of plan.answers ?? []) {
+      const field = this.fields.get(answered.fieldId);
+      if (!field) continue;
+
+      const outcome = await fillFreeText(field, answered.answer);
+      if (!outcome.ok) log.warn(`could not write a recalled answer: ${outcome.reason}`);
+    }
   }
 
   /**

@@ -119,6 +119,21 @@ export interface FillInstruction {
   source: MappingSource;
 }
 
+/**
+ * A screener question the user has answered before (ARCHITECTURE.md §3.6).
+ *
+ * "Do you have your own laptop?", "Are you willing to work night shifts?",
+ * "Notice period in days?" — job boards ask dozens of these and no profile
+ * schema could ever anticipate them. They carry no canonical key, which is why
+ * they travel beside `instructions` rather than inside it: the answer came from
+ * the user's own answer bank, not from a profile field.
+ */
+export interface AnsweredQuestion {
+  fieldId: string;
+  question: string;
+  answer: string;
+}
+
 export interface SkippedField {
   fieldId: string;
   reason: SkipReason;
@@ -129,6 +144,8 @@ export interface SkippedField {
 export interface FillPlan {
   instructions: FillInstruction[];
   skipped: SkippedField[];
+  /** Recalled from the answer bank rather than resolved from the profile. */
+  answers?: AnsweredQuestion[];
 }
 
 /** ARCHITECTURE.md §3.4. */
@@ -151,6 +168,12 @@ export interface FillOutcome {
   /** The machine-readable form — the UI branches on this, never on `reason`. */
   skipReason?: SkipReason;
   signature: string;
+  /**
+   * The control's shape, so the panel can offer the right way to answer it:
+   * a set of buttons for a radio group, a text box for anything else.
+   */
+  kind?: FieldKind;
+  options?: FieldOption[];
 }
 
 export interface FillSummary {

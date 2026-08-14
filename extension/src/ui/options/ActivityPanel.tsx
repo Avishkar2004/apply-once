@@ -3,6 +3,7 @@ import { CANONICAL_KEY_META } from '@autofill/core';
 import type { AuditEntryDto, OverrideRecordDto, SiteAccuracyDto } from '@/shared/messages';
 import { sendToBackground } from '@/shared/messaging';
 import { Button, Card, Section } from '@/ui/components';
+import { ApplicationsCarousel } from './ApplicationsCarousel';
 
 /**
  * The local audit log and the learned overrides.
@@ -86,7 +87,7 @@ function ApplicationsSection({ audit, onClear }: { audit: AuditEntryDto[]; onCle
   return (
     <Section
       title={audit.length > 0 ? `Applications (${audit.length})` : 'Applications'}
-      description="One row per application. Filling the same form again updates its row rather than adding another."
+      description="One card per application, newest first. Filling the same form again updates its card rather than adding another."
       action={
         audit.length > 0 ? (
           <Button variant="danger" onClick={onClear}>
@@ -95,80 +96,15 @@ function ApplicationsSection({ audit, onClear }: { audit: AuditEntryDto[]; onCle
         ) : undefined
       }
     >
-      <div className="sm:col-span-2 space-y-2">
-        {audit.length === 0 ? (
-          <p className="text-sm text-slate-500">
-            Nothing yet. Open a job application and click the AutoFill icon — it will show up here.
-          </p>
-        ) : (
-          audit.map((entry) => (
-            <ApplicationRow key={entry.id ?? `${entry.url}-${entry.at}`} entry={entry} />
-          ))
-        )}
-      </div>
+      {audit.length === 0 ? (
+        <p className="sm:col-span-2 text-sm text-slate-500">
+          Nothing yet. Open a job application and click the AutoFill icon — it will show up here.
+        </p>
+      ) : (
+        <ApplicationsCarousel entries={audit} />
+      )}
     </Section>
   );
-}
-
-function ApplicationRow({ entry }: { entry: AuditEntryDto }) {
-  const needsReview = entry.lowConfidence + entry.rejected;
-  const title = entry.jobTitle ?? entry.company ?? entry.hostname;
-
-  // Never repeat the title in its own subtitle — on a page whose role could not
-  // be read, the hostname is already the heading.
-  const subtitle = [entry.company, entry.hostname]
-    .filter((part): part is string => Boolean(part) && part !== title)
-    .join(' · ');
-
-  return (
-    <Card className="flex items-start justify-between gap-4 p-3!">
-      <div className="min-w-0">
-        <a
-          href={entry.url}
-          target="_blank"
-          rel="noreferrer"
-          className="block truncate text-sm font-medium hover:underline"
-          title={entry.url}
-        >
-          {title}
-        </a>
-        {subtitle && <p className="truncate text-xs text-slate-400">{subtitle}</p>}
-        <p className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-slate-500">
-          <span>{relativeTime(entry.at)}</span>
-          {(entry.fills ?? 1) > 1 && <span>filled {entry.fills}×</span>}
-          {entry.adapter && <span className="text-slate-400">{entry.adapter}</span>}
-        </p>
-      </div>
-      <div className="flex shrink-0 items-center gap-2 text-xs tabular-nums">
-        <span className="rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-          {entry.filled} filled
-        </span>
-        {needsReview > 0 && (
-          <span className="rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-            {needsReview} to check
-          </span>
-        )}
-      </div>
-    </Card>
-  );
-}
-
-/** Exact timestamps are noise in a list you scan; the tooltip keeps the detail. */
-function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (!Number.isFinite(then)) return '';
-
-  const minutes = Math.round((Date.now() - then) / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes} min ago`;
-
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
-
-  const days = Math.round(hours / 24);
-  if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
-
-  return new Date(iso).toLocaleDateString();
 }
 
 export function ActivityPanel() {

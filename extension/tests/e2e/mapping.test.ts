@@ -313,7 +313,8 @@ describe('a generic form on an unknown ATS', () => {
   it('maps the vocabulary non-US boards actually use', async () => {
     const { keyByLabel } = await runPipeline(html, href);
 
-    expect(keyByLabel.get('Current Location')).toBe('contact.address.full');
+    // A city, not a postal address — "Pune" is the answer these forms want.
+    expect(keyByLabel.get('Current Location')).toBe('contact.address.city');
     expect(keyByLabel.get('Current Company')).toBe('work[].company');
     expect(keyByLabel.get('Current Designation')).toBe('work[].title');
     expect(keyByLabel.get('Total Experience (Years)')).toBe('work.totalYears');
