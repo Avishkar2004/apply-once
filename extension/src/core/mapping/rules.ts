@@ -104,6 +104,9 @@ export const LABEL_RULES: LabelRule[] = [
   // ─────────────── documents ───────────────
   { id: 'resume', key: 'documents.resume', match: /\b(resume|résumé|cv|curriculum vitae)\b/, kinds: ['file'] },
   { id: 'cover-letter', key: 'documents.coverLetter', match: /\bcover letter\b/, kinds: ['file'] },
+  // "Cover Letter / Message" is a textarea on most boards, and an uploaded PDF
+  // is no use in one. Same question, different control, different profile field.
+  { id: 'cover-letter-text', key: 'documents.coverLetterText', match: /\bcover letter\b|\b(message|note) to (the )?(recruiter|hiring manager|employer|hr)\b|\banything else you would like us to know\b/, kinds: ['textarea', 'text'] },
   { id: 'transcript', key: 'documents.transcript', match: /\btranscript\b/, kinds: ['file'] },
   { id: 'portfolio-file', key: 'documents.portfolio', match: /\b(portfolio|work sample|writing sample)\b/, kinds: ['file'] },
   // Last resort for a file input. Plenty of forms label the résumé slot

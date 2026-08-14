@@ -2,31 +2,35 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AuditEntryDto } from '@/shared/messages';
 
 /**
- * The applications you have filled, as a horizontal deck.
+ * The applications you have filled, as a vertical deck.
  *
- * A carousel trades scanning for presence: three cards are visible where a list
- * showed ten rows, so finding a specific application takes longer. Scroll-snap
- * is what makes that trade acceptable — a flick moves a whole card, and the
- * arrows step one at a time, so nothing depends on a precise drag.
+ * Bounded height and scroll-snap, rather than a plain list: the panel keeps a
+ * predictable size however long the history grows, and a scroll always settles
+ * on a card boundary instead of halfway through one. Full-width cards mean the
+ * role and the employer read straight across, which is what a list was good at
+ * and a horizontal deck was not.
  *
  * Each card carries a proportion meter rather than a chart. The three segments
  * are *status*, not a data series: filled, needs-checking, left alone. Status
- * colour is never the only signal — every segment is named in the row of chips
- * beneath it, which is also what makes the card readable in greyscale.
+ * colour is never the only signal — every segment is named in the chips beneath
+ * it, which is also what keeps the card readable in greyscale.
  */
+
+/** Roughly three cards. Past this the deck scrolls instead of growing. */
+const DECK_HEIGHT = 'max-h-[25rem]';
 
 export function ApplicationsCarousel({ entries }: { entries: AuditEntryDto[] }) {
   const track = useRef<HTMLDivElement>(null);
-  const [reach, setReach] = useState({ start: true, end: true });
+  const [reach, setReach] = useState({ top: true, bottom: true });
 
   const measure = useCallback(() => {
     const el = track.current;
     if (!el) return;
-    // A 2px tolerance: sub-pixel layout means scrollLeft rarely lands exactly on
+    // A 2px tolerance: sub-pixel layout means scrollTop rarely lands exactly on
     // the maximum, and an arrow that never disables reads as broken.
     setReach({
-      start: el.scrollLeft <= 2,
-      end: el.scrollLeft >= el.scrollWidth - el.clientWidth - 2,
+      top: el.scrollTop <= 2,
+      bottom: el.scrollTop >= el.scrollHeight - el.clientHeight - 2,
     });
   }, []);
 
@@ -45,35 +49,51 @@ export function ApplicationsCarousel({ entries }: { entries: AuditEntryDto[] }) 
     if (!el) return;
     // One card plus its gap, so a press always lands on a snap point.
     const card = el.firstElementChild as HTMLElement | null;
-    const distance = card ? card.offsetWidth + 16 : el.clientWidth * 0.8;
-    el.scrollBy({ left: distance * direction, behavior: 'smooth' });
+    const distance = card ? card.offsetHeight + 12 : el.clientHeight * 0.8;
+    el.scrollBy({ top: distance * direction, behavior: 'smooth' });
   };
 
-  const atBothEnds = reach.start && reach.end;
+  const fits = reach.top && reach.bottom;
 
   return (
-    <div className="sm:col-span-2">
-      <div
-        ref={track}
-        onScroll={measure}
-        tabIndex={0}
-        role="region"
-        aria-label="Applications"
-        className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 outline-none [scrollbar-width:none] focus-visible:ring-2 focus-visible:ring-indigo-400 [&::-webkit-scrollbar]:hidden"
-      >
-        {entries.map((entry) => (
-          <ApplicationCard key={entry.id ?? `${entry.url}-${entry.at}`} entry={entry} />
-        ))}
+    <div className="col-span-full">
+      <div className="relative">
+        <div
+          ref={track}
+          onScroll={measure}
+          tabIndex={0}
+          role="region"
+          aria-label="Applications"
+          className={`flex snap-y snap-mandatory flex-col gap-3 overflow-y-auto outline-none ${DECK_HEIGHT} [scrollbar-width:none] focus-visible:ring-2 focus-visible:ring-indigo-400 [&::-webkit-scrollbar]:hidden`}
+        >
+          {entries.map((entry) => (
+            <ApplicationCard key={entry.id ?? `${entry.url}-${entry.at}`} entry={entry} />
+          ))}
+        </div>
+
+        {/* Edge fades say "there is more" without occupying a row of their own. */}
+        {!reach.top && <EdgeFade edge="top" />}
+        {!reach.bottom && <EdgeFade edge="bottom" />}
       </div>
 
       {/* Nothing to page through when every card already fits. */}
-      {!atBothEnds && (
-        <div className="mt-2 flex items-center justify-end gap-2">
-          <StepButton direction="left" disabled={reach.start} onClick={() => step(-1)} />
-          <StepButton direction="right" disabled={reach.end} onClick={() => step(1)} />
+      {!fits && (
+        <div className="mt-3 flex items-center justify-end gap-2">
+          <StepButton direction="up" disabled={reach.top} onClick={() => step(-1)} />
+          <StepButton direction="down" disabled={reach.bottom} onClick={() => step(1)} />
         </div>
       )}
     </div>
+  );
+}
+
+function EdgeFade({ edge }: { edge: 'top' | 'bottom' }) {
+  const position = edge === 'top' ? 'top-0 bg-gradient-to-b' : 'bottom-0 bg-gradient-to-t';
+  return (
+    <div
+      aria-hidden
+      className={`pointer-events-none absolute inset-x-0 h-8 from-white to-transparent dark:from-slate-900 ${position}`}
+    />
   );
 }
 
@@ -82,7 +102,7 @@ function StepButton({
   disabled,
   onClick,
 }: {
-  direction: 'left' | 'right';
+  direction: 'up' | 'down';
   disabled: boolean;
   onClick: () => void;
 }) {
@@ -91,12 +111,12 @@ function StepButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      aria-label={direction === 'left' ? 'Previous applications' : 'More applications'}
+      aria-label={direction === 'up' ? 'Earlier applications' : 'More applications'}
       className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:border-slate-400 hover:text-slate-900 disabled:pointer-events-none disabled:opacity-30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:text-slate-100"
     >
       <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" aria-hidden>
         <path
-          d={direction === 'left' ? 'M10 3L5 8l5 5' : 'M6 3l5 5-5 5'}
+          d={direction === 'up' ? 'M3 10l5-5 5 5' : 'M3 6l5 5 5-5'}
           stroke="currentColor"
           strokeWidth="1.75"
           strokeLinecap="round"
@@ -121,23 +141,24 @@ function ApplicationCard({ entry }: { entry: AuditEntryDto }) {
       target="_blank"
       rel="noreferrer"
       title={entry.url}
-      className="group flex w-72 shrink-0 snap-start flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-500"
+      className="group flex shrink-0 snap-start flex-col gap-2.5 rounded-xl border border-slate-200 bg-white p-4 transition hover:border-slate-300 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-500"
     >
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-start gap-3">
         <Monogram seed={entry.hostname} label={entry.company ?? entry.hostname} />
-        <span className="truncate text-xs text-slate-400 dark:text-slate-500">
-          {relativeTime(entry.at)}
-          {(entry.fills ?? 1) > 1 && ` · filled ${entry.fills}×`}
-        </span>
-      </div>
 
-      <div className="min-h-[3.25rem]">
-        <p className="line-clamp-2 text-sm font-semibold text-slate-900 group-hover:text-indigo-600 dark:text-slate-100 dark:group-hover:text-indigo-400">
-          {title}
-        </p>
-        {subtitle && (
-          <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">{subtitle}</p>
-        )}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-slate-900 group-hover:text-indigo-600 dark:text-slate-100 dark:group-hover:text-indigo-400">
+            {title}
+          </p>
+          {subtitle && (
+            <p className="truncate text-xs text-slate-500 dark:text-slate-400">{subtitle}</p>
+          )}
+        </div>
+
+        <div className="shrink-0 text-right text-xs text-slate-400 dark:text-slate-500">
+          <div>{relativeTime(entry.at)}</div>
+          {(entry.fills ?? 1) > 1 && <div>filled {entry.fills}×</div>}
+        </div>
       </div>
 
       <Meter filled={entry.filled} toCheck={toCheck} skipped={entry.skipped} total={total} />
@@ -224,7 +245,7 @@ function Monogram({ seed, label }: { seed: string; label: string }) {
   return (
     <span
       aria-hidden
-      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-bold uppercase ${tone}`}
+      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-xs font-bold uppercase ${tone}`}
       title={label}
     >
       {label.replace(/^www\./, '').charAt(0)}
@@ -232,7 +253,7 @@ function Monogram({ seed, label }: { seed: string; label: string }) {
   );
 }
 
-/** Exact timestamps are noise in a deck you flick through. */
+/** Exact timestamps are noise in a deck you scroll through. */
 export function relativeTime(iso: string): string {
   const then = new Date(iso).getTime();
   if (!Number.isFinite(then)) return '';

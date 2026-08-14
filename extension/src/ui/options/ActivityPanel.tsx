@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
-import { CANONICAL_KEY_META } from '@autofill/core';
-import type { AuditEntryDto, OverrideRecordDto, SiteAccuracyDto } from '@/shared/messages';
-import { sendToBackground } from '@/shared/messaging';
-import { Button, Card, Section } from '@/ui/components';
-import { ApplicationsCarousel } from './ApplicationsCarousel';
+import { useCallback, useEffect, useState } from "react";
+import { CANONICAL_KEY_META } from "@autofill/core";
+import type {
+  AuditEntryDto,
+  OverrideRecordDto,
+  SiteAccuracyDto,
+} from "@/shared/messages";
+import { sendToBackground } from "@/shared/messaging";
+import { Button, Card, Section } from "@/ui/components";
+import { ApplicationsCarousel } from "./ApplicationsCarousel";
 
 /**
  * The local audit log and the learned overrides.
@@ -30,7 +34,7 @@ function AccuracySection({ accuracy }: { accuracy: SiteAccuracyDto[] }) {
       title="Accuracy by site"
       description="How well AutoFill does on each job board. A correction rate above 20% means that site's adapter needs work."
     >
-      <div className="sm:col-span-2">
+      <div className="col-span-full">
         {accuracy.length === 0 ? (
           <p className="text-sm text-slate-500">No fills recorded yet.</p>
         ) : (
@@ -45,25 +49,36 @@ function AccuracySection({ accuracy }: { accuracy: SiteAccuracyDto[] }) {
             </thead>
             <tbody>
               {accuracy.map((site) => (
-                <tr key={site.hostname} className="border-t border-slate-100 dark:border-slate-800">
+                <tr
+                  key={site.hostname}
+                  className="border-t border-slate-100 dark:border-slate-800"
+                >
                   <td className="py-2">
                     {site.hostname}
-                    {site.adapter && <span className="ml-2 text-xs text-slate-400">{site.adapter}</span>}
+                    {site.adapter && (
+                      <span className="ml-2 text-xs text-slate-400">
+                        {site.adapter}
+                      </span>
+                    )}
                   </td>
-                  <td className="py-2 text-right tabular-nums">{site.samples}</td>
-                  <td className="py-2 text-right tabular-nums">{percent(site.fillRate)}</td>
+                  <td className="py-2 text-right tabular-nums">
+                    {site.samples}
+                  </td>
+                  <td className="py-2 text-right tabular-nums">
+                    {percent(site.fillRate)}
+                  </td>
                   <td
                     className={`py-2 text-right tabular-nums ${
-                      site.needsAttention ? 'font-semibold text-amber-600' : ''
+                      site.needsAttention ? "font-semibold text-amber-600" : ""
                     }`}
                     title={
                       site.needsAttention
-                        ? 'Above the 20% threshold — this adapter needs work'
+                        ? "Above the 20% threshold — this adapter needs work"
                         : undefined
                     }
                   >
                     {percent(site.correctionRate)}
-                    {site.needsAttention ? ' ⚠️' : ''}
+                    {site.needsAttention ? " ⚠️" : ""}
                   </td>
                 </tr>
               ))}
@@ -83,10 +98,18 @@ function AccuracySection({ accuracy }: { accuracy: SiteAccuracyDto[] }) {
  * job title and company were already being scraped for the mapping cascade and
  * then discarded; they are recorded now, and this is what they are for.
  */
-function ApplicationsSection({ audit, onClear }: { audit: AuditEntryDto[]; onClear: () => void }) {
+function ApplicationsSection({
+  audit,
+  onClear,
+}: {
+  audit: AuditEntryDto[];
+  onClear: () => void;
+}) {
   return (
     <Section
-      title={audit.length > 0 ? `Applications (${audit.length})` : 'Applications'}
+      title={
+        audit.length > 0 ? `Applications (${audit.length})` : "Applications"
+      }
       description="One card per application, newest first. Filling the same form again updates its card rather than adding another."
       action={
         audit.length > 0 ? (
@@ -97,8 +120,9 @@ function ApplicationsSection({ audit, onClear }: { audit: AuditEntryDto[]; onCle
       }
     >
       {audit.length === 0 ? (
-        <p className="sm:col-span-2 text-sm text-slate-500">
-          Nothing yet. Open a job application and click the AutoFill icon — it will show up here.
+        <p className="col-span-full text-sm text-slate-500">
+          Nothing yet. Open a job application and click the AutoFill icon — it
+          will show up here.
         </p>
       ) : (
         <ApplicationsCarousel entries={audit} />
@@ -114,9 +138,9 @@ export function ActivityPanel() {
 
   const refresh = useCallback(async () => {
     const [entries, learned, rates] = await Promise.all([
-      sendToBackground('audit:list', {}),
-      sendToBackground('override:list', {}),
-      sendToBackground('audit:accuracy'),
+      sendToBackground("audit:list", {}),
+      sendToBackground("override:list", {}),
+      sendToBackground("audit:accuracy"),
     ]);
     setAudit(entries);
     setOverrides(learned);
@@ -129,30 +153,38 @@ export function ActivityPanel() {
 
   return (
     <div className="space-y-6">
-      <ApplicationsSection audit={audit} onClear={() => void sendToBackground('audit:clear').then(refresh)} />
+      <ApplicationsSection
+        audit={audit}
+        onClear={() => void sendToBackground("audit:clear").then(refresh)}
+      />
       <AccuracySection accuracy={accuracy} />
 
       <Section
         title="Learned corrections"
         description="Fixing a field once fixes it forever on that site. Remove one to fall back to automatic mapping."
       >
-        <div className="sm:col-span-2 space-y-2">
+        <div className="col-span-full space-y-2">
           {overrides.length === 0 ? (
             <p className="text-sm text-slate-500">No corrections yet.</p>
           ) : (
             overrides.map((override) => (
-              <Card key={`${override.hostname}-${override.signature}`} className="flex items-center justify-between gap-4 p-3!">
+              <Card
+                key={`${override.hostname}-${override.signature}`}
+                className="flex items-center justify-between gap-4 p-3!"
+              >
                 <span className="text-sm">
                   <span className="font-medium">{override.hostname}</span>
                   <span className="text-slate-400"> · </span>
                   {override.label ?? override.signature}
                   <span className="text-slate-400"> → </span>
-                  <span className="font-medium">{CANONICAL_KEY_META[override.canonicalKey].label}</span>
+                  <span className="font-medium">
+                    {CANONICAL_KEY_META[override.canonicalKey].label}
+                  </span>
                 </span>
                 <Button
                   variant="danger"
                   onClick={() => {
-                    void sendToBackground('override:clear', {
+                    void sendToBackground("override:clear", {
                       hostname: override.hostname,
                       signature: override.signature,
                     }).then(refresh);

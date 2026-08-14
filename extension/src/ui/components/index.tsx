@@ -37,7 +37,10 @@ export function Section({
         </div>
         {action}
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">{children}</div>
+      {/* Columns are added as the window earns them, not all at once: five
+          across a phone would be five unusable slivers. Anything that needs the
+          whole row asks for `col-span-full`, which holds at every count. */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">{children}</div>
     </Card>
   );
 }
@@ -72,7 +75,7 @@ export function TextField({
   span?: boolean;
 }) {
   return (
-    <label className={span ? 'sm:col-span-2' : undefined}>
+    <label className={span ? 'col-span-full' : undefined}>
       <Label hint={hint}>{label}</Label>
       <input
         className={inputClass}
@@ -99,7 +102,7 @@ export function TextArea({
   hint?: string;
 }) {
   return (
-    <label className="sm:col-span-2">
+    <label className="col-span-full">
       <Label hint={hint}>{label}</Label>
       <textarea
         className={inputClass}
@@ -151,7 +154,7 @@ export function CheckboxField({
   description?: string;
 }) {
   return (
-    <label className="flex items-start gap-3 sm:col-span-2">
+    <label className="flex items-start gap-3 col-span-full">
       <input
         type="checkbox"
         className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
@@ -236,7 +239,7 @@ export function ListEditor<T>({
   };
 
   return (
-    <div className="sm:col-span-2">
+    <div className="col-span-full">
       {items.length === 0 && <p className="mb-3 text-sm text-slate-500">{emptyLabel}</p>}
       <div className="space-y-4">
         {items.map((item, index) => (
@@ -252,7 +255,7 @@ export function ListEditor<T>({
                 Remove
               </Button>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {render(item, (patch) => update(index, patch), index)}
             </div>
           </div>

@@ -1,8 +1,14 @@
-import { useEffect, useState } from 'react';
-import { DEFAULT_SETTINGS } from '@/storage/settings';
-import type { Settings } from '@/shared/messages';
-import { sendToBackground } from '@/shared/messaging';
-import { Banner, Button, CheckboxField, Section, TextField } from '@/ui/components';
+import { useEffect, useState } from "react";
+import { DEFAULT_SETTINGS } from "@/storage/settings";
+import type { Settings } from "@/shared/messages";
+import { sendToBackground } from "@/shared/messaging";
+import {
+  Banner,
+  Button,
+  CheckboxField,
+  Section,
+  TextField,
+} from "@/ui/components";
 
 /**
  * Settings and vault management.
@@ -13,14 +19,16 @@ import { Banner, Button, CheckboxField, Section, TextField } from '@/ui/componen
  */
 export function SettingsPanel({ onLocked }: { onLocked: () => void }) {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
-  const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | undefined>();
+  const [message, setMessage] = useState<
+    { tone: "success" | "error"; text: string } | undefined
+  >();
 
   useEffect(() => {
-    void sendToBackground('settings:get').then(setSettings);
+    void sendToBackground("settings:get").then(setSettings);
   }, []);
 
   const patch = async (next: Partial<Settings>) => {
-    setSettings(await sendToBackground('settings:set', next));
+    setSettings(await sendToBackground("settings:set", next));
   };
 
   return (
@@ -50,11 +58,11 @@ export function SettingsPanel({ onLocked }: { onLocked: () => void }) {
           span
           label="Disabled sites"
           hint="hostnames, comma separated"
-          value={settings.disabledHosts.join(', ')}
+          value={settings.disabledHosts.join(", ")}
           onChange={(value) =>
             void patch({
               disabledHosts: value
-                .split(',')
+                .split(",")
                 .map((host) => host.trim())
                 .filter(Boolean),
             })
@@ -64,11 +72,14 @@ export function SettingsPanel({ onLocked }: { onLocked: () => void }) {
 
       <PassphraseSection onMessage={setMessage} />
 
-      <Section title="Session" description="The unlock key lives in memory and is cleared when the browser closes.">
-        <div className="sm:col-span-2">
+      <Section
+        title="Session"
+        description="The unlock key lives in memory and is cleared when the browser closes."
+      >
+        <div className="col-span-full">
           <Button
             onClick={() => {
-              void sendToBackground('session:lock').then(onLocked);
+              void sendToBackground("session:lock").then(onLocked);
             }}
           >
             Lock now
@@ -82,27 +93,36 @@ export function SettingsPanel({ onLocked }: { onLocked: () => void }) {
 function PassphraseSection({
   onMessage,
 }: {
-  onMessage: (message: { tone: 'success' | 'error'; text: string }) => void;
+  onMessage: (message: { tone: "success" | "error"; text: string }) => void;
 }) {
-  const [current, setCurrent] = useState('');
-  const [next, setNext] = useState('');
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
   const [busy, setBusy] = useState(false);
 
   const rotate = async () => {
     if (next.length < 10) {
-      onMessage({ tone: 'error', text: 'The new passphrase needs at least 10 characters.' });
+      onMessage({
+        tone: "error",
+        text: "The new passphrase needs at least 10 characters.",
+      });
       return;
     }
     setBusy(true);
     try {
-      await sendToBackground('session:rotate-passphrase', { current, next });
-      onMessage({ tone: 'success', text: 'Passphrase changed. Nothing was re-encrypted — only the key wrap changed.' });
+      await sendToBackground("session:rotate-passphrase", { current, next });
+      onMessage({
+        tone: "success",
+        text: "Passphrase changed. Nothing was re-encrypted — only the key wrap changed.",
+      });
     } catch (cause) {
-      onMessage({ tone: 'error', text: cause instanceof Error ? cause.message : String(cause) });
+      onMessage({
+        tone: "error",
+        text: cause instanceof Error ? cause.message : String(cause),
+      });
     } finally {
       setBusy(false);
-      setCurrent('');
-      setNext('');
+      setCurrent("");
+      setNext("");
     }
   };
 
@@ -111,11 +131,21 @@ function PassphraseSection({
       title="Passphrase"
       description="Changing it re-wraps the same encryption key, so your data is untouched. Your recovery code keeps working."
     >
-      <TextField label="Current passphrase" type="password" value={current} onChange={setCurrent} />
-      <TextField label="New passphrase" type="password" value={next} onChange={setNext} />
-      <div className="sm:col-span-2">
+      <TextField
+        label="Current passphrase"
+        type="password"
+        value={current}
+        onChange={setCurrent}
+      />
+      <TextField
+        label="New passphrase"
+        type="password"
+        value={next}
+        onChange={setNext}
+      />
+      <div className="col-span-full">
         <Button variant="primary" disabled={busy} onClick={() => void rotate()}>
-          {busy ? 'Changing…' : 'Change passphrase'}
+          {busy ? "Changing…" : "Change passphrase"}
         </Button>
       </div>
     </Section>

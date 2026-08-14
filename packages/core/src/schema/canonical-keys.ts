@@ -99,6 +99,7 @@ export const CANONICAL_KEYS = [
   // — documents —
   'documents.resume',
   'documents.coverLetter',
+  'documents.coverLetterText',
   'documents.transcript',
   'documents.portfolio',
 
@@ -242,6 +243,8 @@ export const CANONICAL_KEY_META: Record<CanonicalKey, CanonicalKeyMeta> = {
 
   'documents.resume': { label: 'Résumé / CV', type: 'file', group: 'Documents' },
   'documents.coverLetter': { label: 'Cover letter', type: 'file', group: 'Documents' },
+  // The same thing typed into a textarea, which is how most boards ask for it.
+  'documents.coverLetterText': { label: 'Cover letter / message (text)', type: 'longtext', group: 'Documents' },
   'documents.transcript': { label: 'Transcript', type: 'file', group: 'Documents' },
   'documents.portfolio': { label: 'Portfolio file', type: 'file', group: 'Documents' },
 

@@ -199,6 +199,15 @@ export const PROFILE = z.object({
     .object({
       resume: DOCUMENT_REF.optional(),
       coverLetter: DOCUMENT_REF.optional(),
+      /**
+       * The cover letter as prose, not as a file.
+       *
+       * Plenty of applications ask for one in a textarea — "Cover Letter /
+       * Message" — where an uploaded PDF is no use at all. Kept beside the file
+       * rather than derived from it: the two are written differently, and
+       * nothing here can read a PDF the user attached.
+       */
+      coverLetterText: optionalText,
       transcript: DOCUMENT_REF.optional(),
       portfolio: DOCUMENT_REF.optional(),
     })
