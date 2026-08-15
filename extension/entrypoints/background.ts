@@ -5,8 +5,16 @@ import { registerHandlers, sendToTab } from '@/shared/messaging';
 import { planFill } from '@/core/orchestrator';
 import { forgetCorrection, recordCorrection } from '@/core/learning';
 import { approveAnswer, countAnswers, requestDraft } from '@/core/answers';
+import { confirmEmailSent, requestEmailDraft } from '@/core/email/apply';
 import { embeddingsState } from '@/core/mapping/tier2';
-import { clearApiKey, hasApiHostPermission, hasApiKey, setApiKey } from '@/llm/credentials';
+import {
+  clearApiKey,
+  hasApiHostPermission,
+  hasApiKey,
+  setApiKey,
+  storedKeyProvider,
+} from '@/llm/credentials';
+import { getProvider, originForProvider, resolveModel } from '@/llm/providers';
 import { applyResumeExtraction, structureResume } from '@/llm/resume-parse';
 import { deleteBlob, getBlobBase64, putBlobBase64 } from '@/storage/blob-store';
 import { clearAudit, listAudit, recordFill, siteAccuracy } from '@/storage/audit-log';
@@ -193,16 +201,38 @@ export default defineBackground(() => {
       return { ok: true as const };
     },
 
-    // ── AI assistance (§6.4) ──
-    'llm:status': async () => ({
-      enabled: (await getSettings()).llmEnabled,
-      hasKey: await hasApiKey(),
-      hasHostPermission: await hasApiHostPermission(),
-      embeddings: embeddingsState(),
-      answersStored: await countAnswers(),
-    }),
-    'llm:set-key': async ({ apiKey, baseUrl }) => {
-      await setApiKey(apiKey, baseUrl);
+    // ── Email Apply (§3.7) ──
+    // `email:detect` is handled in the content script — it needs the DOM.
+    'email:draft': (request) => requestEmailDraft(request),
+    'email:mark-sent': async ({ entryId, to }) => {
+      await confirmEmailSent(entryId, to);
+      return { ok: true as const };
+    },
+
+    // ── AI assistance (§6.4, §7) ──
+    'llm:status': async () => {
+      const settings = await getSettings();
+      const provider = getProvider(settings.llmProvider);
+      const keyProvider = await storedKeyProvider();
+      return {
+        enabled: settings.llmEnabled,
+        hasKey: await hasApiKey(),
+        // The origin actually called, not the vendor's — a self-hosted proxy
+        // needs its own grant (see `originForProvider`).
+        hasHostPermission: await hasApiHostPermission(originForProvider(provider.id)),
+        provider: provider.id,
+        ...(keyProvider ? { keyProvider } : {}),
+        models: {
+          mapping: resolveModel(provider, 'mapping', settings.llmModels),
+          drafting: resolveModel(provider, 'drafting', settings.llmModels),
+          parsing: resolveModel(provider, 'parsing', settings.llmModels),
+        },
+        embeddings: embeddingsState(),
+        answersStored: await countAnswers(),
+      };
+    },
+    'llm:set-key': async ({ provider, apiKey, baseUrl }) => {
+      await setApiKey(provider, apiKey, baseUrl);
       return { ok: true as const };
     },
     'llm:clear-key': async () => {

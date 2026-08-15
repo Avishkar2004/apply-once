@@ -73,12 +73,26 @@ export interface OverrideRecord {
 }
 
 /**
+ * How this application was made.
+ *
+ * `'form'` — the fill pipeline wrote into a form on the page.
+ * `'email'` — there was no form, so it went out as an email (§3.7).
+ *
+ * They share one table because the user's question is "what have I applied to",
+ * and an answer that splits by mechanism does not answer it.
+ */
+export type ApplicationKind = 'form' | 'email';
+
+/** Drafted but not yet sent, or sent. Only meaningful on an `'email'` row. */
+export type EmailStatus = 'drafted' | 'sent';
+
+/**
  * One application, not one fill.
  *
  * Filling the same form three times is one thing that happened to the user, so
  * a repeat updates the row and bumps `fills` rather than appending. Without
  * that, the history reads as noise the moment anyone corrects a field and
- * re-fills.
+ * re-fills. Redrafting an email works the same way.
  */
 export interface AuditEntry {
   id?: number;
@@ -88,7 +102,7 @@ export interface AuditEntry {
   /** Scraped from the page (§3.2) — what turns a hostname into an application. */
   jobTitle?: string;
   company?: string;
-  /** Most recent fill. */
+  /** Most recent fill, or the most recent draft. */
   at: string;
   /** First fill, so the history can say when an application was started. */
   firstAt?: string;
@@ -98,6 +112,18 @@ export interface AuditEntry {
   lowConfidence: number;
   rejected: number;
   skipped: number;
+
+  // — email applications (§3.7); backfilled to 'form' for rows written before v4 —
+  kind: ApplicationKind;
+  /** Who the application was addressed to. */
+  emailTo?: string;
+  /**
+   * Recorded at draft time, promoted on the click that opens a compose window.
+   * "Drafted" is the honest state for an email AutoFill wrote and the user never
+   * sent — which is exactly what the history has to be able to say.
+   */
+  emailStatus?: EmailStatus;
+  sentAt?: string;
 }
 
 /**
@@ -152,6 +178,22 @@ export class AutoFillDatabase extends Dexie {
     this.version(3).stores({
       auditLog: '++id, hostname, at, url',
     });
+
+    // v4 makes the log hold email applications as well as filled forms (§3.7).
+    // `kind` is indexed because the accuracy report is about form-filling and
+    // must not average email rows into a site's fill rate. Existing rows are
+    // backfilled rather than left undefined: "absent means form" is a rule that
+    // would then have to be remembered at every read site.
+    this.version(4)
+      .stores({ auditLog: '++id, hostname, at, url, kind' })
+      .upgrade(async (tx) => {
+        await tx
+          .table<AuditEntry>('auditLog')
+          .toCollection()
+          .modify((entry) => {
+            entry.kind ??= 'form';
+          });
+      });
   }
 }
 

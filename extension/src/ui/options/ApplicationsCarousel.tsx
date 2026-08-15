@@ -135,6 +135,10 @@ function ApplicationCard({ entry }: { entry: AuditEntryDto }) {
     .filter((part): part is string => Boolean(part) && part !== title)
     .join(' · ');
 
+  // Rows written before v4 carry no `kind`; they were all fills (§3.7).
+  const isEmail = (entry.kind ?? 'form') === 'email';
+  const sent = entry.emailStatus === 'sent';
+
   return (
     <a
       href={entry.url}
@@ -144,7 +148,11 @@ function ApplicationCard({ entry }: { entry: AuditEntryDto }) {
       className="group flex shrink-0 snap-start flex-col gap-2.5 rounded-xl border border-slate-200 bg-white p-4 transition hover:border-slate-300 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-500"
     >
       <div className="flex items-start gap-3">
-        <Monogram seed={entry.hostname} label={entry.company ?? entry.hostname} />
+        {isEmail ? (
+          <EnvelopeMark sent={sent} />
+        ) : (
+          <Monogram seed={entry.hostname} label={entry.company ?? entry.hostname} />
+        )}
 
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-slate-900 group-hover:text-indigo-600 dark:text-slate-100 dark:group-hover:text-indigo-400">
@@ -157,18 +165,67 @@ function ApplicationCard({ entry }: { entry: AuditEntryDto }) {
 
         <div className="shrink-0 text-right text-xs text-slate-400 dark:text-slate-500">
           <div>{relativeTime(entry.at)}</div>
-          {(entry.fills ?? 1) > 1 && <div>filled {entry.fills}×</div>}
+          {(entry.fills ?? 1) > 1 && (
+            <div>
+              {isEmail ? 'drafted' : 'filled'} {entry.fills}×
+            </div>
+          )}
         </div>
       </div>
 
-      <Meter filled={entry.filled} toCheck={toCheck} skipped={entry.skipped} total={total} />
-
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Chip tone="good" label={`${entry.filled} filled`} />
-        {toCheck > 0 && <Chip tone="warning" label={`${toCheck} to check`} />}
-        {entry.skipped > 0 && <Chip tone="neutral" label={`${entry.skipped} skipped`} />}
-      </div>
+      {/* An email application has no fields, so a fill meter would be a bar of
+          nothing. What it has instead is a recipient and a status, and those are
+          the two things "did I follow up on this one" actually needs. */}
+      {isEmail ? (
+        <>
+          <p className="truncate font-mono text-xs text-slate-500 dark:text-slate-400">
+            → {entry.emailTo}
+          </p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Chip
+              tone={sent ? 'good' : 'warning'}
+              label={sent ? `Sent ${relativeTime(entry.sentAt ?? entry.at)}` : 'Drafted — not sent'}
+            />
+            <Chip tone="neutral" label="by email" />
+          </div>
+        </>
+      ) : (
+        <>
+          <Meter filled={entry.filled} toCheck={toCheck} skipped={entry.skipped} total={total} />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Chip tone="good" label={`${entry.filled} filled`} />
+            {toCheck > 0 && <Chip tone="warning" label={`${toCheck} to check`} />}
+            {entry.skipped > 0 && <Chip tone="neutral" label={`${entry.skipped} skipped`} />}
+          </div>
+        </>
+      )}
     </a>
+  );
+}
+
+/**
+ * An email application reads as one at a glance.
+ *
+ * Deliberately not a coloured monogram: the deck is scanned by shape first, and
+ * "this one went out as an email" is a different *kind* of row, not another
+ * employer. Colour carries the sent/drafted state, and the chip beneath repeats
+ * it in words — the card stays readable in greyscale.
+ */
+function EnvelopeMark({ sent }: { sent: boolean }) {
+  const tone = sent
+    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+    : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300';
+
+  return (
+    <span
+      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${tone}`}
+      title={sent ? 'Sent by email' : 'Drafted, not sent'}
+    >
+      <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" aria-hidden>
+        <rect x="1.5" y="3.5" width="13" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M2 4.5l6 4 6-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    </span>
   );
 }
 

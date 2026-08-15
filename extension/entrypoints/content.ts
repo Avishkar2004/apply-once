@@ -2,6 +2,7 @@ import { defineContentScript } from 'wxt/utils/define-content-script';
 import type { CanonicalKey } from '@autofill/core';
 import { PageSession } from '@/core/session';
 import { observeChanges } from '@/core/scanner';
+import { shouldOfferEmailApply, type EmailDetection } from '@/core/email/detect';
 import { mapWithRules } from '@/core/mapping/tier1';
 import { toDto, type FieldDescriptor } from '@/shared/types';
 import { createLogger } from '@/shared/logger';
@@ -50,8 +51,14 @@ export default defineContentScript({
     const session = new PageSession();
     let overlay: OverlayController | undefined;
     let phase: OverlayPhase = { kind: 'idle' };
+    /** The address this posting takes applications at, once we have looked (§3.7). */
+    let email: EmailDetection | undefined;
 
-    const render = () => overlay?.render(phase, session.unreachableFrames);
+    const render = () =>
+      overlay?.render(phase, {
+        unreachableFrames: session.unreachableFrames,
+        ...(email ? { email } : {}),
+      });
 
     const ensureOverlay = (): OverlayController => {
       overlay ??= mountOverlay({
@@ -78,6 +85,11 @@ export default defineContentScript({
         onAcceptDraft: (outcome, answer) => session.acceptDraft(outcome.fieldId, answer),
         // Uploading is the user's call, never a side effect of filling (§3.4a).
         onAttach: (outcome) => session.attachDocument(outcome.fieldId),
+        // §3.7 — drafting composes and records; only a send action hands the
+        // email to a compose window, and only the user presses send there.
+        onDraftEmail: (to) => session.draftEmail(to),
+        onSendEmail: (method, composed, entryId) => session.sendEmail(method, composed, entryId),
+        onDownloadDocument: (blobId) => session.downloadDocument(blobId),
       });
       return overlay;
     };
@@ -103,6 +115,13 @@ export default defineContentScript({
         const result = await session.fill((done, total) =>
           setPhase({ kind: 'filling', done, total }),
         );
+
+        // A posting with no form is not a dead end if it names an address
+        // (§3.7). Detection is local and reads nothing but the page, so it costs
+        // nothing to look; when there is no address, nothing changes.
+        const found = session.detectEmail();
+        email = shouldOfferEmailApply(found, result.summary.total) ? found : undefined;
+
         setPhase({ kind: 'done', session: result });
         // Mirror the result into the side panel, if one happens to be open.
         void sendToBackground('panel:session', { session: result }).catch(() => undefined);
@@ -121,6 +140,8 @@ export default defineContentScript({
         void runFill();
         return { started: true };
       },
+      // Detection needs the DOM, so it answers here rather than in the worker.
+      'email:detect': () => session.detectEmail(),
     });
 
     /**

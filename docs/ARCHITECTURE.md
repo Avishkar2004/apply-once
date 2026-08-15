@@ -270,7 +270,45 @@ question ──► normalize + hash ──► Answer Bank hit? ──yes──�
 - Drafts are **never** filled silently. They land in the overlay marked ⚠️ and require one click to accept.
 - Answers cap at the field's `maxLength`, enforced in the prompt *and* truncated after.
 - Company-specific answers store with the company as part of the key. Generic ones ("describe a challenge") reuse everywhere.
-- Model: `claude-sonnet-5` for drafts. `claude-haiku-4-5` for Tier 3 field mapping — it is a classification task and does not need the bigger model.
+- Model: the **drafting** role. Which model that is depends on the configured provider (§7) — `claude-sonnet-5` on Anthropic, a free model on OpenRouter. Field mapping uses the **mapping** role, which is a classification task and does not need the bigger model.
+
+---
+
+### 3.7 Email Apply (postings with no form)
+
+Plenty of postings have no application form at all. The whole process is a paragraph ending "send your CV to careers@…", and for those pages the scanner correctly reported that there was nothing to fill — which is accurate and useless.
+
+```
+scan finds no fillable fields ──► look for an address on the page
+                                        │none
+                                        ├──────────► say so, change nothing
+                                        ▼
+                        rank candidates: mailto in the job body
+                                       > careers@ in the footer
+                                       > drop privacy@ / support@ / no-reply@
+                                        ▼
+                        draft subject + body (drafting role)
+                          from profile + resume + scraped posting
+                                        ▼
+                        review in the overlay — To, Subject, Body,
+                          which documents to attach, all editable
+                                        ▼
+                        one click hands it to a compose window
+                          mailto: · Gmail · clipboard
+                                        ▼
+                        audit row: drafted ──► sent
+```
+
+**Design decisions:**
+- **Finding an address is easy; finding the right one is the job.** Every page has several — a privacy contact, a support desk, an unsubscribe link — and mailing a CV to a data-protection officer is worse than doing nothing. Candidates are ranked by *kind* (a `mailto:` link outranks an address in prose), by *region* (body copy outranks footer furniture), and by *local part* (careers@, jobs@, hr@ gain). Addresses that are definitionally not application inboxes are dropped, not demoted. The top candidate is a proposal: the runners-up travel with it and the panel lets the user pick.
+- **The form wins.** A page with a real application form is applied to through the form. The email route is offered unasked only when the scan found no application fields; on a page that has both, it stays folded away.
+- **Nothing sends.** There is no code path from this flow to a delivered email — the same architectural guarantee as §6.7's no-auto-submit. All three actions open a compose window that the user still has to press send in.
+- **Attachments are named, not attached.** `mailto:` forbids attachments by design, Gmail's compose URL has no parameter for one, and the clipboard holds text. The panel says which file to attach and offers it as a one-click download. Pretending otherwise would produce applications sent without the CV they promise.
+- **Recorded whether or not it goes out.** The audit row is written when the draft appears, as `drafted`, and promoted to `sent` on the send click. An email AutoFill composed and the user abandoned is exactly what the history exists to remember. "Sent" means a compose window opened holding the draft — AutoFill cannot watch a mail client, and claiming more would put an unverified assertion in the one view the user trusts.
+- **Degrades to the address.** With AI assistance off, detection still runs (it is local and free) and the user gets a subject line, an empty body, and their own mail client. Turning the model off costs the wording, not the feature.
+- **Same PII disclosure as §3.6.** The draft has to be about the applicant, so it sends profile and résumé text — under the same `llmEnabled` / API-key / host-permission gates, disclosed at the same place.
+
+Lives in `core/email/detect.ts` (ranking), `core/email/send.ts` (compose-window URLs), `core/email/apply.ts` (worker-side orchestration), `llm/email-draft.ts` (the prompt).
 
 ---
 
@@ -353,7 +391,9 @@ interface Profile {
 | `answerBank` | IndexedDB | `{ questionHash, question, answer, company?, usedCount, lastUsed }` |
 | `mappingCache` | IndexedDB | `{ cacheKey, canonicalKey, confidence, source, createdAt }` |
 | `overrides` | IndexedDB | `{ hostname, signature, canonicalKey }` — user corrections |
-| `settings` | `chrome.storage.sync` | Non-sensitive prefs only: theme, enabled sites, LLM on/off |
+| `auditLog` | IndexedDB | One row per application. `kind: 'form' \| 'email'`; email rows carry `emailTo`, `emailStatus`, `sentAt` (§3.7) |
+| `meta` | IndexedDB | Singletons: the vault record, the sync high-water mark, and the sealed `{ provider, apiKey, baseUrl? }` credential (§6.4) |
+| `settings` | `chrome.storage.sync` | Non-sensitive prefs only: theme, enabled sites, LLM on/off, provider choice, model ids |
 
 ---
 
@@ -395,7 +435,7 @@ Your profile is a complete identity dossier: name, address, phone, work history,
 1. **Local-first.** All profile data lives in IndexedDB on your machine. No backend is required for the core product to work.
 2. **Encrypted at rest.** AES-GCM via WebCrypto; key derived from a user passphrase with PBKDF2 (600k iterations). Unlocked per browser session, held in service-worker memory only.
 3. **PII never reaches the LLM for field mapping.** Tier 3 sends field *labels and options* — never values. The Answer Generator does send profile context, and that is disclosed explicitly at the point the feature is enabled, with a per-call toggle.
-4. **Bring your own key.** Users can supply their own Anthropic API key so requests go direct, with no intermediary. The hosted proxy is opt-in convenience, not the default.
+4. **Bring your own key, to whichever provider you like.** Requests go direct from the browser to the provider the user chose (§7), with no intermediary. The key is sealed with the DEK and records which vendor issued it, so switching providers asks for a new key rather than sending the old one somewhere it does not belong. Ollama needs no key at all and nothing leaves the machine. The hosted proxy is opt-in convenience, not the default.
 5. **Least-privilege manifest.** `activeTab` + explicit host permissions for known ATS domains. No blanket `<all_urls>`.
 6. **Zero-knowledge sync.** If sync is on, the backend stores a ciphertext blob it cannot decrypt. Keys never leave the client.
 7. **No auto-submit.** Architectural, not configurable. The fill executor has no code path that clicks a submit button.
@@ -414,9 +454,26 @@ Your profile is a complete identity dossier: name, address, phone, work history,
 | Storage | Dexie (IndexedDB) | Typed queries, migration support |
 | Embeddings | `@xenova/transformers` — MiniLM-L6-v2 quantized | Runs offline in the worker, ~23MB, no network per field |
 | Resume parsing | `pdfjs-dist` + LLM structuring | Extract text, then LLM → `Profile` fields |
-| LLM | Anthropic API — `claude-sonnet-5` (drafts), `claude-haiku-4-5` (mapping) | Sonnet for quality writing, Haiku for cheap classification |
+| LLM | Pluggable provider layer — OpenRouter (default), Gemini, Groq, Ollama, Anthropic | Nothing should need a billing account to work; the default is a free model |
 | Testing | Vitest + Playwright | Playwright drives real ATS demo forms |
 | Backend (optional) | Hono on Cloudflare Workers + D1 | Small, cheap, edge; only sync + LLM proxy |
+
+### The provider layer
+
+Callers ask for a **role**, never a model id. There are three: `mapping` (Tier 3 classification), `drafting` (answers and application emails), `parsing` (résumé → profile). Each provider maps the three to its own defaults, and every one is overridable in the options page — free-tier model ids churn on a timescale of weeks, so a hardcoded list would be stale before anyone read it.
+
+| Provider | Wire format | Key | Default models |
+|----------|-------------|-----|----------------|
+| **OpenRouter** *(default)* | OpenAI `chat/completions` | Bearer | a `:free` id for all three roles |
+| Gemini | `:generateContent`, `x-goog-api-key` header | Header | `gemini-2.0-flash` / `gemini-2.5-flash` |
+| Groq | OpenAI `chat/completions` | Bearer | `llama-3.1-8b-instant` / `llama-3.3-70b-versatile` |
+| Ollama | native `/api/chat` on localhost | **none** | `llama3.2` |
+| Anthropic | official SDK | Bearer | `claude-haiku-4-5` (mapping), `claude-sonnet-5` (drafts) |
+
+- **One `complete({ system, messages, maxTokens, model, json? }) → { text }`.** Structured output is a JSON Schema, because one of the five speaks Zod and all five speak JSON Schema in some dialect. Validation stays with the caller: the schema constrains generation, it does not replace `safeParse`.
+- **Plain `fetch` for everything but Anthropic.** Four vendor SDKs in a browser extension to send four nearly identical JSON bodies would be absurd. Anthropic keeps its SDK — it is already installed and carries the retry policy and the typed error classes.
+- **One gate, in `llm/client.ts`.** Enabled, keyed, key-belongs-to-this-provider, host permission. `LlmDisabledError` names which one failed. `needsKey: false` is what keeps the no-key gate from firing on Ollama.
+- **The host permission follows the base URL.** A self-hosted proxy needs its own grant, so the origin is computed from the URL that will actually be called — minus the port, which Chrome match patterns cannot express.
 
 ---
 
@@ -441,11 +498,13 @@ AutoFill/
 │   │   │   ├── mapping/           # tiers 0-3, cascade orchestration
 │   │   │   ├── filler/            # native setters, per-kind strategies
 │   │   │   ├── verifier/          # post-fill diffing
-│   │   │   └── learning/          # override capture
+│   │   │   ├── learning/          # override capture
+│   │   │   └── email/             # address detection, compose-window URLs (§3.7)
 │   │   ├── adapters/              # greenhouse.ts, lever.ts, workday.ts, ...
 │   │   ├── schema/                # Zod profile, canonical keys, migrations
 │   │   ├── storage/               # Dexie, crypto, blob store
-│   │   ├── llm/                   # client, prompts, response validation
+│   │   ├── llm/                   # gates, prompts, response validation
+│   │   │   └── providers/         # one module per vendor, one interface (§7)
 │   │   └── ui/                    # shared components
 │   └── tests/
 │       ├── unit/

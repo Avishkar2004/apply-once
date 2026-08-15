@@ -1,6 +1,9 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import type { CanonicalKey } from '@autofill/core';
+import type { DraftEmailResponse } from '@/shared/messages';
 import type { FillOutcome, FillSession, FillSummary } from '@/shared/types';
+import type { EmailDetection } from '@/core/email/detect';
+import type { ComposedEmail, SendMethod } from '@/core/email/send';
 import { KeyPicker } from './KeyPicker';
 
 /**
@@ -32,6 +35,17 @@ export type OverlayPhase =
 export interface OverlayProps {
   phase: OverlayPhase;
   unreachableFrames: number;
+  /**
+   * The address this page offers, when it has one (§3.7). Present or absent —
+   * a page with no address changes nothing about the panel.
+   */
+  email?: EmailDetection;
+  /** Composes the email and records it as drafted. Never sends. */
+  onDraftEmail: (to: string) => Promise<DraftEmailResponse>;
+  /** The send click — opens a compose window; the user still presses send. */
+  onSendEmail: (method: SendMethod, email: ComposedEmail, entryId: number) => Promise<boolean>;
+  /** Downloads a stored document so it can be attached by hand. */
+  onDownloadDocument: (blobId: string) => Promise<{ ok: boolean; detail: string }>;
   onClose: () => void;
   onRefill: () => void;
   onHighlight: (fieldId: string) => void;
@@ -208,6 +222,10 @@ export function isFurniture(outcome: FillOutcome): boolean {
 function ResultBody({
   session,
   unreachableFrames,
+  email,
+  onDraftEmail,
+  onSendEmail,
+  onDownloadDocument,
   onHighlight,
   onCorrect,
   onDraft,
@@ -216,6 +234,10 @@ function ResultBody({
   onOpenOptions,
   onRefill,
 }: { session: FillSession } & OverlayProps) {
+  // `onOpenOptions` travels with them: when a draft comes back empty the cause
+  // is almost always a setting, and a notice with no way to act on it is half a
+  // message. The "Nothing was filled" notice has offered this route for a while.
+  const emailProps = { onDraftEmail, onSendEmail, onDownloadDocument, onOpenOptions };
   const groups = useMemo(() => {
     const attention: FillOutcome[] = [];
     const filled: FillOutcome[] = [];
@@ -243,30 +265,35 @@ function ResultBody({
   const headline = summaryHeadline(session.summary);
 
   // There was no form. "Everything mapped cleanly — 0 fields" congratulates the
-  // user for nothing and hides the two things that actually cause this: the
-  // form has not mounted yet, or it is inside a frame we cannot reach.
+  // user for nothing and hides the three things that actually cause this: the
+  // form has not mounted yet, it is inside a frame we cannot reach — or there is
+  // no form at all and the posting wants an email (§3.7).
   if (headline === 'no-fields') {
     return (
-      <div className="notice">
-        <strong>No form fields here</strong>
-        <span className="muted">
-          AutoFill found nothing to fill on this page. If the application form is still loading, or you
-          have not opened it yet, scan again once it is on screen.
-        </span>
-        {unreachableFrames > 0 && (
+      <div className="body">
+        <div className="notice">
+          <strong>{email ? 'This posting takes email applications' : 'No form fields here'}</strong>
           <span className="muted">
-            {unreachableFrames} embedded {unreachableFrames === 1 ? 'frame' : 'frames'} could not be read
-            — the form may well be inside {unreachableFrames === 1 ? 'it' : 'them'}.
+            {email
+              ? 'There is no application form on this page, but there is an address. AutoFill can write the email; you review it and send it yourself.'
+              : 'AutoFill found nothing to fill on this page. If the application form is still loading, or you have not opened it yet, scan again once it is on screen.'}
           </span>
-        )}
-        <div className="row-actions">
-          <button className="btn btn-primary" onClick={onRefill}>
-            Scan again
-          </button>
-          <button className="btn" onClick={onOpenOptions}>
-            Open my profile
-          </button>
+          {unreachableFrames > 0 && (
+            <span className="muted">
+              {unreachableFrames} embedded {unreachableFrames === 1 ? 'frame' : 'frames'} could not be read
+              — the form may well be inside {unreachableFrames === 1 ? 'it' : 'them'}.
+            </span>
+          )}
+          <div className="row-actions">
+            <button className="btn btn-primary" onClick={onRefill}>
+              Scan again
+            </button>
+            <button className="btn" onClick={onOpenOptions}>
+              Open my profile
+            </button>
+          </div>
         </div>
+        {email && <EmailApply detection={email} {...emailProps} />}
       </div>
     );
   }
@@ -325,6 +352,16 @@ function ResultBody({
           {groups.idle.map((outcome) => (
             <Row key={outcome.fieldId} outcome={outcome} {...rowProps} />
           ))}
+        </Fold>
+      )}
+
+      {/* Reached when the page has a control or two — a search box, a newsletter
+          input — but nothing that amounts to an application form. Folded rather
+          than prominent: the panel has already reported on the fields it found,
+          and this is the alternative, not the headline. */}
+      {email && (
+        <Fold title="Apply by email instead" count={1}>
+          <EmailApply detection={email} {...emailProps} />
         </Fold>
       )}
 
@@ -665,6 +702,212 @@ function DraftEditor({
           </span>
         </>
       )}
+      {error && <span className="muted">{error}</span>}
+    </div>
+  );
+}
+
+/**
+ * Apply by email (ARCHITECTURE.md §3.7).
+ *
+ * The same contract as every other write in this panel: AutoFill produces text,
+ * the user reads it, and one click hands it to something that can send it. Every
+ * part is editable first — the address most of all, because detection ranks
+ * candidates and a ranking is a guess.
+ *
+ * Nothing here sends. The three actions open the default mail client, open a
+ * Gmail compose tab, and copy to the clipboard; all three end with a compose
+ * window the user still has to press send in. That is not a limitation to
+ * apologise for, it is the same promise as "never auto-submits" (§6.7).
+ *
+ * None of the three can attach a file — `mailto:` forbids it by design — so the
+ * panel names the file to attach and offers it as a download rather than
+ * pretending the CV went with it.
+ */
+function EmailApply({
+  detection,
+  onDraftEmail,
+  onSendEmail,
+  onDownloadDocument,
+  onOpenOptions,
+}: {
+  detection: EmailDetection;
+  onDraftEmail: OverlayProps['onDraftEmail'];
+  onSendEmail: OverlayProps['onSendEmail'];
+  onDownloadDocument: OverlayProps['onDownloadDocument'];
+  onOpenOptions: OverlayProps['onOpenOptions'];
+}) {
+  const [to, setTo] = useState(detection.best.address);
+  const [draft, setDraft] = useState<DraftEmailResponse | undefined>();
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+  const [sent, setSent] = useState<SendMethod | undefined>();
+  const [saved, setSaved] = useState<string | undefined>();
+
+  const compose = async () => {
+    setBusy(true);
+    setError(undefined);
+    // A redraft is a new email: it has not been sent, whatever the last one did.
+    // Leaving this set left the panel claiming "✓ Opened in your mail app" over
+    // a draft that had never left the page.
+    setSent(undefined);
+    try {
+      const result = await onDraftEmail(to);
+      setDraft(result);
+      setSubject(result.subject || subject);
+      // Never trade something for nothing. When a redraft comes back empty —
+      // the model rate-limited, the profile too thin — whatever the user has
+      // already written by hand is worth more than the blank that replaced it.
+      if (result.body || !body.trim()) setBody(result.body);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const send = async (method: SendMethod) => {
+    if (!draft) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const handed = await onSendEmail(method, { to, subject, body }, draft.entryId);
+      if (handed) setSent(method);
+      else setError('Could not open that. Copy the email instead.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const download = async (blobId: string) => {
+    const result = await onDownloadDocument(blobId);
+    setSaved(result.ok ? result.detail : undefined);
+    if (!result.ok) setError(result.detail);
+  };
+
+  const addresses = [detection.best, ...detection.alternatives];
+
+  return (
+    <div className="email" onClick={(event) => event.stopPropagation()}>
+      <div className="email-field">
+        <label htmlFor="autofill-email-to">To</label>
+        {addresses.length > 1 && (
+          <select value={to} onChange={(event) => setTo(event.target.value)}>
+            {addresses.map((candidate) => (
+              <option key={candidate.address} value={candidate.address}>
+                {candidate.address}
+                {candidate.region === 'footer' ? ' (from the footer)' : ''}
+              </option>
+            ))}
+          </select>
+        )}
+        <input
+          id="autofill-email-to"
+          className="answer-input"
+          value={to}
+          onChange={(event) => setTo(event.target.value)}
+          placeholder="careers@example.com"
+        />
+      </div>
+
+      {draft === undefined ? (
+        <>
+          <button className="btn btn-primary" disabled={busy || !to.trim()} onClick={() => void compose()}>
+            {busy ? 'Drafting…' : 'Draft email'}
+          </button>
+          <span className="muted">
+            Written from your profile and résumé. Nothing is sent — you read it first.
+          </span>
+        </>
+      ) : (
+        <>
+          <div className="email-field">
+            <label htmlFor="autofill-email-subject">Subject</label>
+            <input
+              id="autofill-email-subject"
+              className="answer-input"
+              value={subject}
+              onChange={(event) => setSubject(event.target.value)}
+            />
+          </div>
+
+          {/* An empty body is the one outcome that looks identical to the
+              feature not running. Whatever caused it gets said here, at full
+              weight, above the empty box — not in grey under the buttons where
+              the first person to hit it did not see it. */}
+          {draft.source === 'plain' && !body.trim() && (
+            <div className="email-warn">
+              <strong>AutoFill could not write the body</strong>
+              {/* `||`, not `??` — an empty-string notice is as useless as none,
+                  and rendering it produced a heading over a blank line. */}
+              <span>{draft.notice || 'AI assistance is off, so this is a subject line only.'}</span>
+              <span>The address and subject are ready — write the body yourself, or fix the above and redraft.</span>
+              <button className="btn" onClick={onOpenOptions}>
+                Open my profile and AI settings
+              </button>
+            </div>
+          )}
+
+          <div className="email-field">
+            <label htmlFor="autofill-email-body">Body</label>
+            <textarea
+              id="autofill-email-body"
+              className="draft"
+              rows={10}
+              value={body}
+              onChange={(event) => setBody(event.target.value)}
+              placeholder={
+                draft.source === 'plain' ? 'Nothing was drafted — type your email here.' : undefined
+              }
+            />
+          </div>
+
+          {/* Named, not attached. No send route can carry a file. */}
+          <div className="email-attach">
+            <span className="email-attach-head">
+              {draft.attachments.length > 0
+                ? 'Attach these yourself — no mail link can do it for you'
+                : 'No documents stored yet'}
+            </span>
+            {draft.attachments.map((file) => (
+              <div key={file.blobId} className="row-actions">
+                <button className="btn" onClick={() => void download(file.blobId)}>
+                  Download {file.filename}
+                </button>
+              </div>
+            ))}
+            {saved && <span className="muted">✓ Saved {saved} — attach it in your mail app.</span>}
+          </div>
+
+          <div className="row-actions">
+            <button className="btn btn-primary" disabled={busy} onClick={() => void send('mailto')}>
+              Open mail app
+            </button>
+            <button className="btn" disabled={busy} onClick={() => void send('gmail')}>
+              Gmail
+            </button>
+            <button className="btn" disabled={busy} onClick={() => void send('clipboard')}>
+              Copy
+            </button>
+            <button className="btn" disabled={busy} onClick={() => void compose()}>
+              Redraft
+            </button>
+          </div>
+
+          <span className="muted">
+            {sent
+              ? sent === 'clipboard'
+                ? '✓ Copied. Recorded as sent — paste it into your mail app and send it.'
+                : '✓ Opened in your mail app. Recorded as sent; press send there.'
+              : draft.source === 'plain'
+                ? 'Recorded as drafted either way — it will be in your Applications list.'
+                : 'AI draft — edit it before you send it. AutoFill never sends for you.'}
+          </span>
+        </>
+      )}
+
       {error && <span className="muted">{error}</span>}
     </div>
   );

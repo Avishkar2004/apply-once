@@ -1,6 +1,9 @@
 import { createRoot, type Root } from 'react-dom/client';
 import type { CanonicalKey } from '@autofill/core';
+import type { DraftEmailResponse } from '@/shared/messages';
 import type { FillOutcome } from '@/shared/types';
+import type { EmailDetection } from '@/core/email/detect';
+import type { ComposedEmail, SendMethod } from '@/core/email/send';
 import { OVERLAY_HOST_ATTRIBUTE } from '@/core/scanner';
 import { Overlay, type OverlayPhase } from './Overlay';
 import { OVERLAY_CSS, PANEL_WIDTH } from './styles';
@@ -32,10 +35,27 @@ export interface OverlayHandlers {
   onDraft: (outcome: FillOutcome) => Promise<{ answer: string; source: 'bank' | 'llm' }>;
   onAcceptDraft: (outcome: FillOutcome, answer: string) => Promise<boolean>;
   onAttach: (outcome: FillOutcome) => Promise<{ ok: boolean; detail: string }>;
+  // — Email Apply (§3.7) —
+  onDraftEmail: (to: string) => Promise<DraftEmailResponse>;
+  onSendEmail: (method: SendMethod, email: ComposedEmail, entryId: number) => Promise<boolean>;
+  onDownloadDocument: (blobId: string) => Promise<{ ok: boolean; detail: string }>;
+}
+
+/**
+ * Everything the panel needs that is not the phase itself.
+ *
+ * A bag rather than positional arguments: this is the second such fact after
+ * `unreachableFrames`, and a third positional parameter is where a render call
+ * becomes unreadable at the call site.
+ */
+export interface OverlayContext {
+  unreachableFrames?: number;
+  /** Absent when the page offers no application address. */
+  email?: EmailDetection;
 }
 
 export interface OverlayController {
-  render(phase: OverlayPhase, unreachableFrames?: number): void;
+  render(phase: OverlayPhase, context?: OverlayContext): void;
   destroy(): void;
 }
 
@@ -90,8 +110,15 @@ export function mountOverlay(handlers: OverlayHandlers, doc: Document = document
   let root: Root | undefined = createRoot(container);
 
   return {
-    render(phase, unreachableFrames = 0) {
-      root?.render(<Overlay phase={phase} unreachableFrames={unreachableFrames} {...handlers} />);
+    render(phase, context = {}) {
+      root?.render(
+        <Overlay
+          phase={phase}
+          unreachableFrames={context.unreachableFrames ?? 0}
+          {...(context.email ? { email: context.email } : {})}
+          {...handlers}
+        />,
+      );
     },
     destroy() {
       resize.disconnect();

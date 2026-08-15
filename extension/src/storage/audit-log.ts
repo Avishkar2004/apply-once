@@ -1,5 +1,5 @@
 import type { FillSession } from '@/shared/types';
-import { db, type AuditEntry } from './db';
+import { db, type ApplicationKind, type AuditEntry } from './db';
 
 
 /**
@@ -7,7 +7,9 @@ import { db, type AuditEntry } from './db';
  * timestamp, and field count. Viewable and clearable in the options page."
  *
  * Counts only. No labels, no values, no mappings — a record of what happened,
- * not a copy of what was submitted.
+ * not a copy of what was submitted. Email applications (§3.7) land in the same
+ * table and store the recipient, which is the one identifier that *is* the
+ * record: "did I follow up on this one" cannot be answered without it.
  */
 
 const MAX_ENTRIES = 500;
@@ -34,7 +36,7 @@ export async function recordFill(session: FillSession): Promise<void> {
     skipped: session.summary.skipped,
   };
 
-  const existing = await findApplication(url, session.jobTitle);
+  const existing = await findApplication(url, session.jobTitle, 'form');
 
   if (existing?.id !== undefined) {
     await table.update(existing.id, {
@@ -52,6 +54,7 @@ export async function recordFill(session: FillSession): Promise<void> {
   }
 
   await table.add({
+    kind: 'form',
     hostname: session.hostname,
     url,
     ...(session.adapter ? { adapter: session.adapter } : {}),
@@ -63,6 +66,101 @@ export async function recordFill(session: FillSession): Promise<void> {
     ...counts,
   });
 
+  await trimToLimit();
+}
+
+/**
+ * Record an application made by email (§3.7).
+ *
+ * Written when the draft appears, not when it is sent — an email AutoFill
+ * composed and the user abandoned is still the thing the history exists to
+ * remember, and a log that only knows about successes cannot answer "did I ever
+ * follow up on this one".
+ *
+ * Same one-row-per-application rule as `recordFill`: redrafting updates the row
+ * and bumps `fills`. Email rows are matched separately from form rows, so a
+ * posting that has both a form and an address keeps one of each rather than
+ * having the email overwrite the fill counts.
+ *
+ * Returns the row id, which is what promotes it to `sent` later.
+ */
+export async function recordEmailApplication(input: EmailApplication): Promise<number> {
+  const table = db().auditLog;
+  const url = stripQuery(input.url);
+  const at = input.at ?? new Date().toISOString();
+
+  const existing = await findApplication(url, input.jobTitle, 'email');
+
+  if (existing?.id !== undefined) {
+    await table.update(existing.id, {
+      at,
+      emailTo: input.to,
+      fills: (existing.fills ?? 1) + 1,
+      firstAt: existing.firstAt ?? existing.at,
+      // A redraft never demotes an application the user already sent.
+      emailStatus: existing.emailStatus === 'sent' ? 'sent' : 'drafted',
+      ...(input.jobTitle ? { jobTitle: input.jobTitle } : {}),
+      ...(input.company ? { company: input.company } : {}),
+    });
+    return existing.id;
+  }
+
+  const id = await table.add({
+    kind: 'email',
+    hostname: input.hostname,
+    url,
+    ...(input.jobTitle ? { jobTitle: input.jobTitle } : {}),
+    ...(input.company ? { company: input.company } : {}),
+    at,
+    firstAt: at,
+    fills: 1,
+    emailTo: input.to,
+    emailStatus: 'drafted',
+    // An email application fills no fields. Zeroes rather than absent so every
+    // reader of the table can treat the counts as numbers.
+    filled: 0,
+    lowConfidence: 0,
+    rejected: 0,
+    skipped: 0,
+  });
+
+  await trimToLimit();
+  return id;
+}
+
+export interface EmailApplication {
+  hostname: string;
+  url: string;
+  jobTitle?: string;
+  company?: string;
+  /** The address as it stood when the draft was made. */
+  to: string;
+  /** Defaults to now. */
+  at?: string;
+}
+
+/**
+ * Mark an email application as sent.
+ *
+ * "Sent" here means the user clicked one of the send actions — a compose window
+ * opened with the draft in it. AutoFill cannot observe the actual send, and
+ * claiming otherwise would put a lie in the one view the user trusts. The
+ * address is re-recorded because it is editable right up to that click.
+ */
+export async function markEmailSent(id: number, to?: string): Promise<void> {
+  const entry = await db().auditLog.get(id);
+  if (!entry) return;
+
+  await db().auditLog.update(id, {
+    emailStatus: 'sent',
+    sentAt: new Date().toISOString(),
+    ...(to ? { emailTo: to } : {}),
+  });
+}
+
+/** The log is a rolling window, not an archive. */
+async function trimToLimit(): Promise<void> {
+  const table = db().auditLog;
   const overflow = (await table.count()) - MAX_ENTRIES;
   if (overflow > 0) {
     const stale = await table.orderBy('id').limit(overflow).primaryKeys();
@@ -76,9 +174,18 @@ export async function recordFill(session: FillSession): Promise<void> {
  * URL alone is not enough: plenty of boards serve every posting from one path
  * and swap the content, so two different roles would collapse into one row. The
  * scraped job title separates them when it is available.
+ *
+ * `kind` separates the two ways of applying to the same posting — filling its
+ * form and emailing its recruiter are two records, not one overwriting the other.
  */
-async function findApplication(url: string, jobTitle?: string): Promise<AuditEntry | undefined> {
-  const candidates = await db().auditLog.where('url').equals(url).toArray();
+async function findApplication(
+  url: string,
+  jobTitle: string | undefined,
+  kind: ApplicationKind,
+): Promise<AuditEntry | undefined> {
+  const candidates = (await db().auditLog.where('url').equals(url).toArray()).filter(
+    (entry) => (entry.kind ?? 'form') === kind,
+  );
   if (candidates.length === 0) return undefined;
 
   const sameRole = candidates.find((entry) => (entry.jobTitle ?? '') === (jobTitle ?? ''));
@@ -177,9 +284,16 @@ function summariseHost(hostname: string, entries: AuditEntry[]): SiteAccuracy {
   };
 }
 
-/** One row per site, worst correction rate first. */
+/**
+ * One row per site, worst correction rate first.
+ *
+ * Email applications are excluded on purpose: §10 measures how well the mapper
+ * does on a site's *form*, and an email row has no fields at all. Averaging its
+ * zeroes in would make a site look worse the more of its postings you applied
+ * to by email — the opposite of what the number is for.
+ */
 export async function siteAccuracy(): Promise<SiteAccuracy[]> {
-  const entries = await db().auditLog.toArray();
+  const entries = (await db().auditLog.toArray()).filter((entry) => isFormEntry(entry));
 
   const byHost = new Map<string, AuditEntry[]>();
   for (const entry of entries) {
@@ -195,7 +309,12 @@ export async function siteAccuracy(): Promise<SiteAccuracy[]> {
 
 /** Single-host convenience, same numbers. */
 export async function correctionRate(hostname: string): Promise<{ rate: number; samples: number }> {
-  const entries = await db().auditLog.where('hostname').equals(hostname).toArray();
+  const entries = (await db().auditLog.where('hostname').equals(hostname).toArray()).filter(
+    (entry) => isFormEntry(entry),
+  );
   const summary = summariseHost(hostname, entries);
   return { rate: summary.correctionRate, samples: summary.samples };
 }
+
+/** Rows written before v4 carry no `kind`; they were all fills. */
+const isFormEntry = (entry: AuditEntry): boolean => (entry.kind ?? 'form') === 'form';

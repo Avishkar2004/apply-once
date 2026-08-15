@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import {
   CANONICAL_KEYS,
   CANONICAL_KEY_META,
@@ -9,7 +8,7 @@ import {
 } from '@autofill/core';
 import type { FieldDescriptorDto } from '@/shared/types';
 import { createLogger } from '@/shared/logger';
-import { getLlmContext, MODELS } from './client';
+import { complete, parseJsonOutput } from './client';
 
 const log = createLogger('llm/field-mapping');
 
@@ -49,6 +48,12 @@ export const FIELD_MAPPING_RESULT = z.object({
 });
 
 export type FieldMappingResult = z.infer<typeof FIELD_MAPPING_RESULT>;
+
+/**
+ * The same schema as JSON Schema, for providers that constrain generation with
+ * one. Built once — `toJSONSchema` walks the whole canonical key enum.
+ */
+const MAPPING_JSON_SCHEMA = z.toJSONSchema(FIELD_MAPPING_RESULT) as Record<string, unknown>;
 
 /** Exactly what leaves the device. Label-level only — see the module note. */
 export interface MappableField {
@@ -144,25 +149,25 @@ export async function mapFieldsWithLlm(
     );
   }
 
-  const { client } = await getLlmContext();
   const payload = batch.map(toMappableField);
 
-  const message = await client.messages.parse({
-    model: MODELS.mapping,
-    max_tokens: 4096,
+  const { text } = await complete('mapping', {
+    maxTokens: 4096,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: buildUserPrompt(payload, context) }],
-    output_config: { format: zodOutputFormat(FIELD_MAPPING_RESULT) },
+    json: { name: 'field_mappings', schema: MAPPING_JSON_SCHEMA },
   });
 
-  const parsed = message.parsed_output;
-  if (!parsed) {
-    log.warn('Tier 3 returned no parseable output', message.stop_reason);
+  // Validated here rather than trusted: not every provider enforces a schema,
+  // and an invented key must fail validation instead of reaching the executor.
+  const parsed = FIELD_MAPPING_RESULT.safeParse(parseJsonOutput(text));
+  if (!parsed.success) {
+    log.warn('Tier 3 returned no parseable output', parsed.error.issues[0]?.message);
     return verdicts;
   }
 
   const known = new Set(batch.map((field) => field.id));
-  for (const mapping of parsed.mappings) {
+  for (const mapping of parsed.data.mappings) {
     // The model echoes ids back; ignore anything it invented.
     if (!known.has(mapping.fieldId)) continue;
     verdicts.set(mapping.fieldId, {

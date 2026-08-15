@@ -1,8 +1,8 @@
-import { profileCompleteness, truncate, type Profile } from '@autofill/core';
+import { truncate, type Profile } from '@autofill/core';
 import type { PageContext } from '@/shared/types';
 import { createLogger } from '@/shared/logger';
 import type { StoredAnswer } from '@/core/answers/bank';
-import { getLlmContext, MODELS } from './client';
+import { complete } from './client';
 
 const log = createLogger('llm/answer-draft');
 
@@ -53,7 +53,14 @@ Match the register of the applicant's previous answers when you are shown some.
 
 No preamble, no sign-off, no "Here is my answer". Return only the answer text itself, ready to paste into the form.`;
 
-function buildProfileBrief(profile: Profile): string {
+/**
+ * Everything the model is allowed to know about the applicant, in one block.
+ *
+ * Exported because the email drafter grounds itself in exactly the same
+ * material (§3.7) — one brief, one truncation policy, one place to audit what
+ * leaves the device when profile context is in play (§6.3).
+ */
+export function buildProfileBrief(profile: Profile): string {
   const lines: string[] = [];
   const { personal, work, education, skills, preferences } = profile;
 
@@ -120,22 +127,14 @@ function buildUserPrompt(request: DraftRequest, limit: number): string {
 
 export async function draftAnswer(request: DraftRequest): Promise<DraftResult> {
   const limit = request.maxLength && request.maxLength > 0 ? request.maxLength : DEFAULT_ANSWER_CHARS;
-  const { client } = await getLlmContext();
 
-  const message = await client.messages.create({
-    model: MODELS.drafting,
+  const { text: raw } = await complete('drafting', {
     // ~4 characters per token, plus room for the model to think.
-    max_tokens: Math.min(4096, Math.ceil(limit / 3) + 512),
+    maxTokens: Math.min(4096, Math.ceil(limit / 3) + 512),
     system: SYSTEM_PROMPT,
-    output_config: { effort: 'medium' },
+    effort: 'medium',
     messages: [{ role: 'user', content: buildUserPrompt(request, limit) }],
   });
-
-  const raw = message.content
-    .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
-    .map((block) => block.text)
-    .join('')
-    .trim();
 
   // Belt and braces: the prompt asked for the limit, and we enforce it anyway.
   const answer = truncate(raw, limit);
@@ -146,8 +145,24 @@ export async function draftAnswer(request: DraftRequest): Promise<DraftResult> {
   return { answer, truncated: answer.length < raw.length };
 }
 
-/** Advisory — a draft grounded in an empty profile is not worth generating. */
+/**
+ * Is there enough here to ground a draft?
+ *
+ * This used to read `profile.work.length > 0 || profileCompleteness(profile).ready`,
+ * which looks like two chances and is one: `ready` is only ever true when
+ * `work.length > 0` is among the satisfied requirements, so the second clause
+ * could never rescue the first. The effect was that someone who had uploaded a
+ * résumé, filled in their contact details, and listed their education still got
+ * a refusal and an empty email body — while `buildProfileBrief` was sitting on
+ * four thousand characters of their résumé, which is ample grounding.
+ *
+ * The test is now what it always meant: is there *anything* about this person's
+ * background to write from.
+ */
 export function canDraft(profile: Profile): boolean {
-  const report = profileCompleteness(profile);
-  return profile.work.length > 0 || report.ready;
+  return (
+    profile.work.length > 0 ||
+    profile.education.length > 0 ||
+    Boolean(profile.documents.resume?.parsedText?.trim())
+  );
 }

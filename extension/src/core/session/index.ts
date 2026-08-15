@@ -1,5 +1,14 @@
 import { fromBase64 } from '@autofill/core';
+import type { DraftEmailResponse } from '@/shared/messages';
 import type { AtsAdapter } from '@/adapters';
+import { detectApplicationEmail, type EmailDetection } from '@/core/email/detect';
+import {
+  gmailComposeUrl,
+  mailtoUrl,
+  plainTextEmail,
+  type ComposedEmail,
+  type SendMethod,
+} from '@/core/email/send';
 import {
   annotateRepeatingRows,
   findAdapter,
@@ -118,6 +127,110 @@ export class PageSession {
       page: this.pageContext,
     });
     return { answer: response.answer, source: response.source };
+  }
+
+  /**
+   * Find the address an application should go to (§3.7).
+   *
+   * Pure reading — nothing is written to the page and nothing leaves the device.
+   * The page context is refreshed first because the ranking leans on the job
+   * description to tell posting text from site furniture, and a detection run
+   * before any fill would otherwise have none.
+   */
+  detectEmail(): EmailDetection | undefined {
+    if (!this.pageContext.jobDescription) this.pageContext = readPageContext(this.doc);
+    return detectApplicationEmail(this.doc, { page: this.pageContext });
+  }
+
+  /** Ask the worker to compose the application email. It records, never sends. */
+  async draftEmail(to: string): Promise<DraftEmailResponse> {
+    const url = new URL(this.doc.location.href);
+    return sendToBackground('email:draft', {
+      to,
+      hostname: url.hostname,
+      url: url.href,
+      page: this.pageContext,
+    });
+  }
+
+  /**
+   * Hand a composed email to something that can send it (§3.7).
+   *
+   * Every route opens a compose window the user still has to press send in.
+   * There is no path from here to a delivered email, by design — the same
+   * guarantee as §6.7's "never submits".
+   */
+  async sendEmail(method: SendMethod, email: ComposedEmail, entryId: number): Promise<boolean> {
+    const handed = await this.handOff(method, email);
+    if (!handed) return false;
+
+    // "Sent" means a compose window opened holding this draft. Recorded after
+    // the hand-off succeeds, so a blocked pop-up does not mark it sent.
+    await sendToBackground('email:mark-sent', { entryId, to: email.to }).catch((error: unknown) =>
+      log.warn('could not mark the email as sent', error),
+    );
+    return true;
+  }
+
+  private async handOff(method: SendMethod, email: ComposedEmail): Promise<boolean> {
+    if (method === 'clipboard') {
+      try {
+        await navigator.clipboard.writeText(plainTextEmail(email));
+        return true;
+      } catch (error) {
+        log.warn('the clipboard refused the email', error);
+        return false;
+      }
+    }
+
+    if (method === 'gmail') {
+      // `noopener` so the compose tab cannot reach back into this page.
+      return this.doc.defaultView?.open(gmailComposeUrl(email), '_blank', 'noopener') !== null;
+    }
+
+    // A `mailto:` anchor click. Not `location.href = …`: the browser hands the
+    // URL to the mail client either way, but an anchor leaves the job posting
+    // in the tab if no mail client is registered, and a navigation does not.
+    const link = this.doc.createElement('a');
+    link.href = mailtoUrl(email);
+    link.style.display = 'none';
+    this.doc.body.append(link);
+    link.click();
+    link.remove();
+    return true;
+  }
+
+  /**
+   * Download a stored document so the user can attach it by hand.
+   *
+   * No send route can carry an attachment — `mailto:` forbids it, Gmail's
+   * compose URL has no parameter for it, and the clipboard holds text. Saying
+   * which file to attach and putting it one click away is the honest version of
+   * "attachments included".
+   */
+  async downloadDocument(blobId: string): Promise<{ ok: boolean; detail: string }> {
+    try {
+      const file = await sendToBackground('documents:get', { blobId });
+      const blob = new Blob([fromBase64(file.base64) as unknown as BlobPart], {
+        type: file.mimeType,
+      });
+      const href = URL.createObjectURL(blob);
+
+      const link = this.doc.createElement('a');
+      link.href = href;
+      link.download = file.filename;
+      link.style.display = 'none';
+      this.doc.body.append(link);
+      link.click();
+      link.remove();
+      // Revoked on the next turn — revoking synchronously can beat the download.
+      setTimeout(() => URL.revokeObjectURL(href), 10_000);
+
+      return { ok: true, detail: file.filename };
+    } catch (error) {
+      log.warn('could not download the document', error);
+      return { ok: false, detail: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   /**

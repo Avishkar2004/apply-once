@@ -36,9 +36,16 @@ export default defineConfig({
       ...(browser === 'firefox' ? [] : ['sidePanel']),
     ],
     host_permissions: [...ATS_MATCH_PATTERNS],
-    // Requested from the options page only when the user supplies their own
-    // Anthropic key (§6.4) — never granted at install.
-    optional_host_permissions: ['https://api.anthropic.com/*'],
+    // One entry per LLM provider AutoFill can be pointed at (§7). Optional, and
+    // requested from the options page for the *selected* provider only when the
+    // user configures it (§6.4) — never granted at install, and never all five.
+    optional_host_permissions: [
+      'https://openrouter.ai/*',
+      'https://generativelanguage.googleapis.com/*',
+      'https://api.groq.com/*',
+      'http://localhost/*',
+      'https://api.anthropic.com/*',
+    ],
     action: { default_title: 'AutoFill — review and fill this application' },
     ...(browser === 'firefox' ? {} : { side_panel: { default_path: 'sidepanel.html' } }),
     // No remote code, ever. `wasm-unsafe-eval` is required by onnxruntime-web,

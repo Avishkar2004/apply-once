@@ -6,7 +6,7 @@ import type {
   SiteAccuracyDto,
 } from "@/shared/messages";
 import { sendToBackground } from "@/shared/messaging";
-import { Button, Card, Section } from "@/ui/components";
+import { Banner, Button, Card, Section } from "@/ui/components";
 import { ApplicationsCarousel } from "./ApplicationsCarousel";
 
 /**
@@ -32,7 +32,7 @@ function AccuracySection({ accuracy }: { accuracy: SiteAccuracyDto[] }) {
   return (
     <Section
       title="Accuracy by site"
-      description="How well AutoFill does on each job board. A correction rate above 20% means that site's adapter needs work."
+      description="How well AutoFill does on each job board, counting filled forms only — an email application has no fields to get right. A correction rate above 20% means that site's adapter needs work."
     >
       <div className="col-span-full">
         {accuracy.length === 0 ? (
@@ -105,12 +105,19 @@ function ApplicationsSection({
   audit: AuditEntryDto[];
   onClear: () => void;
 }) {
+  // Emails AutoFill drafted and the user never sent. Surfaced above the deck
+  // rather than left to be found by scrolling — an unsent application is the
+  // one row in this list that still needs something from the user (§3.7).
+  const unsent = audit.filter(
+    (entry) => entry.kind === "email" && entry.emailStatus !== "sent",
+  ).length;
+
   return (
     <Section
       title={
         audit.length > 0 ? `Applications (${audit.length})` : "Applications"
       }
-      description="One card per application, newest first. Filling the same form again updates its card rather than adding another."
+      description="One card per application, newest first — forms you filled and emails you sent. Applying to the same posting again updates its card rather than adding another."
       action={
         audit.length > 0 ? (
           <Button variant="danger" onClick={onClear}>
@@ -119,6 +126,16 @@ function ApplicationsSection({
         ) : undefined
       }
     >
+      {unsent > 0 && (
+        <div className="col-span-full">
+          <Banner tone="warn">
+            {unsent} application email{unsent === 1 ? "" : "s"} drafted but not
+            sent. Open the posting again to finish {unsent === 1 ? "it" : "them"}
+            .
+          </Banner>
+        </div>
+      )}
+
       {audit.length === 0 ? (
         <p className="col-span-full text-sm text-slate-500">
           Nothing yet. Open a job application and click the AutoFill icon — it

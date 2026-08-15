@@ -1,8 +1,7 @@
 import { z } from 'zod';
-import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { truncate, type EducationEntry, type Profile, type WorkEntry } from '@autofill/core';
 import { createLogger } from '@/shared/logger';
-import { getLlmContext, MODELS } from './client';
+import { complete, parseJsonOutput } from './client';
 
 const log = createLogger('llm/resume-parse');
 
@@ -60,6 +59,8 @@ const RESUME_EXTRACTION = z.object({
 
 export type ResumeExtraction = z.infer<typeof RESUME_EXTRACTION>;
 
+const RESUME_JSON_SCHEMA = z.toJSONSchema(RESUME_EXTRACTION) as Record<string, unknown>;
+
 const SYSTEM_PROMPT = `You extract structured data from a résumé.
 
 Copy what the document says. Do not infer, normalise job titles, expand abbreviations, or fill gaps with what is typical — an invented employer or date ends up in a submitted job application.
@@ -71,21 +72,19 @@ Dates are YYYY-MM (or YYYY when only a year is given). Set current to true only 
 List roles and schools most recent first.`;
 
 export async function structureResume(resumeText: string): Promise<ResumeExtraction> {
-  const { client } = await getLlmContext();
-
-  const message = await client.messages.parse({
-    model: MODELS.parsing,
-    max_tokens: 8192,
+  const { text } = await complete('parsing', {
+    maxTokens: 8192,
     system: SYSTEM_PROMPT,
-    output_config: { format: zodOutputFormat(RESUME_EXTRACTION), effort: 'medium' },
+    effort: 'medium',
+    json: { name: 'resume_extraction', schema: RESUME_JSON_SCHEMA },
     messages: [{ role: 'user', content: `Résumé:\n\n${truncate(resumeText, 40_000)}` }],
   });
 
-  const parsed = message.parsed_output;
-  if (!parsed) throw new Error('Could not read a profile out of that résumé.');
+  const parsed = RESUME_EXTRACTION.safeParse(parseJsonOutput(text));
+  if (!parsed.success) throw new Error('Could not read a profile out of that résumé.');
 
-  log.info(`extracted ${parsed.work.length} roles and ${parsed.education.length} schools`);
-  return parsed;
+  log.info(`extracted ${parsed.data.work.length} roles and ${parsed.data.education.length} schools`);
+  return parsed.data;
 }
 
 /**

@@ -1,4 +1,5 @@
 import type { CanonicalKey, Profile } from '@autofill/core';
+import type { ModelOverrides, ProviderId } from '@/llm/providers/types';
 import type { FieldDescriptorDto, FillPlan, FillSession, PageContext } from './types';
 
 /**
@@ -72,6 +73,11 @@ export interface AuditEntryDto {
   lowConfidence: number;
   rejected: number;
   skipped: number;
+  /** How it was applied to (§3.7). Absent on rows written before v4; read as 'form'. */
+  kind?: 'form' | 'email';
+  emailTo?: string;
+  emailStatus?: 'drafted' | 'sent';
+  sentAt?: string;
 }
 
 /** W4 — optional multi-device sync (WEB.md §4). */
@@ -113,11 +119,52 @@ export interface DraftAnswerResponse {
   truncated: boolean;
 }
 
+/** One address the page offers, with why it was ranked where it was (§3.7). */
+export interface EmailCandidateDto {
+  address: string;
+  kind: 'mailto' | 'text';
+  region: 'body' | 'page' | 'footer';
+  score: number;
+  context?: string;
+}
+
+export interface EmailDetectionDto {
+  best: EmailCandidateDto;
+  alternatives: EmailCandidateDto[];
+}
+
+export interface DraftEmailRequest {
+  /** The chosen address — the detector's proposal, or the user's correction. */
+  to: string;
+  hostname: string;
+  url: string;
+  page: PageContext;
+}
+
+export interface DraftEmailResponse {
+  subject: string;
+  body: string;
+  /** `plain` means AI assistance is off — a subject line and an empty body. */
+  source: 'llm' | 'plain';
+  /** Documents the user has to attach by hand; nothing can do it for them. */
+  attachments: Array<{ slot: string; filename: string; blobId: string }>;
+  /** The audit row this draft was recorded against, for `email:mark-sent`. */
+  entryId: number;
+  /** Present when AI is off or unconfigured — shown, not thrown. */
+  notice?: string;
+}
+
 export interface LlmStatus {
   /** The `llmEnabled` setting. */
   enabled: boolean;
   hasKey: boolean;
   hasHostPermission: boolean;
+  /** Which provider is selected right now. */
+  provider: ProviderId;
+  /** Which provider the stored key was issued for — they can disagree. */
+  keyProvider?: ProviderId;
+  /** The model each role resolves to, overrides applied. */
+  models: { mapping: string; drafting: string; parsing: string };
   /** Tier 2 model state — 'ready' means local embeddings are in play. */
   embeddings: 'idle' | 'loading' | 'ready' | 'unavailable';
   answersStored: number;
@@ -137,6 +184,10 @@ export interface Settings {
   disabledHosts: string[];
   /** Tier 3 / answer drafting. Off until an API key is configured (§6.3, §6.4). */
   llmEnabled: boolean;
+  /** Which vendor serves the AI tiers. Free-first by default (§7). */
+  llmProvider: ProviderId;
+  /** Model id per provider per role. Blank or absent means the default. */
+  llmModels: ModelOverrides;
   /** Ask before filling voluntary self-identification fields. */
   fillEeo: boolean;
 }
@@ -192,6 +243,17 @@ export interface MessageMap {
     res: { ok: true };
   };
 
+  // ── Email Apply (§3.7) ──
+  /**
+   * Handled in the **content script**, not the worker: finding an address means
+   * reading the page, and the worker has no DOM.
+   */
+  'email:detect': { req: undefined; res: EmailDetectionDto | undefined };
+  /** Composes the draft *and* records it as `drafted`. Never sends. */
+  'email:draft': { req: DraftEmailRequest; res: DraftEmailResponse };
+  /** The user clicked a send action — `drafted` becomes `sent`. */
+  'email:mark-sent': { req: { entryId: number; to?: string }; res: { ok: true } };
+
   // ── Optional sync (WEB.md §4, W4) ──
   'sync:state': { req: undefined; res: SyncStateDto };
   'sync:sign-up': { req: SyncCredentialsDto; res: { ok: true } };
@@ -204,7 +266,11 @@ export interface MessageMap {
 
   // ── AI assistance configuration (§6.4) ──
   'llm:status': { req: undefined; res: LlmStatus };
-  'llm:set-key': { req: { apiKey: string; baseUrl?: string }; res: { ok: true } };
+  /** The provider is part of the credential — a key is never reused across vendors. */
+  'llm:set-key': {
+    req: { provider: ProviderId; apiKey: string; baseUrl?: string };
+    res: { ok: true };
+  };
   'llm:clear-key': { req: undefined; res: { ok: true } };
 
   'settings:get': { req: undefined; res: Settings };

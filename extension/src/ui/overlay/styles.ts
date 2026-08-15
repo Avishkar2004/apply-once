@@ -388,4 +388,42 @@ select:hover { border-color: var(--fg-muted); }
   border-radius: 5px;
 }
 .icon-close:hover { color: var(--fg); background: var(--bg-hover); }
+
+/* ── Email Apply (§3.7) ─────────────────────────────────── */
+
+.email { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; }
+.email-field { display: flex; flex-direction: column; gap: 3px; }
+.email-field > label {
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+/* The body is the part that gets read before sending, so it gets the room. */
+.email .draft { margin-bottom: 0; }
+.email-attach {
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  padding: 7px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.email-attach-head { font-size: 11.5px; font-weight: 600; }
+
+/* An empty body looks identical to the feature not running. Say why, loudly. */
+.email-warn {
+  border: 1px solid var(--warn);
+  border-left-width: 3px;
+  border-radius: 7px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--fg);
+}
+.email-warn strong { font-size: 12px; font-weight: 650; color: var(--warn); }
 `;
