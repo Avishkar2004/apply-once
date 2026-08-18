@@ -66,16 +66,25 @@ export interface EmailDraftResult {
   truncated: boolean;
 }
 
-const SYSTEM_PROMPT = `You write short application emails on behalf of a job applicant, in their voice.
+/**
+ * Exported for the same reason `buildEmailPrompt` is: the grounding rules are
+ * only worth anything if a test can read them back. The anti-fabrication clause
+ * in particular — a recruiter clicks a URL, so an invented one fails loudly and
+ * in public — is the sort of line that gets softened by a later edit unless
+ * something is pinning it.
+ */
+export const SYSTEM_PROMPT = `You write short application emails on behalf of a job applicant, in their voice.
 
-Write in first person, plainly and specifically. Ground every claim in the applicant's own background as given — their roles, their skills, their résumé. Do not invent employers, dates, metrics, or achievements that are not in the material you were given; a fabricated detail in a job application is worse than a vague one, and the recruiter has the CV in front of them.
+Write in first person, plainly and specifically. Ground every claim in the applicant's own background as given — their roles, their skills, their résumé. Do not invent employers, dates, metrics, achievements, or URLs that are not in the material you were given; a fabricated detail in a job application is worse than a vague one, and the recruiter has the CV in front of them.
 
 The body is 150–220 words. Three or four short paragraphs:
 - why you are writing, naming the role and where you saw it;
 - what in your actual background fits this posting;
 - a plain closing line, then your name.
 
-Do not open with "I hope this email finds you well", "I am writing to express my interest", or any other stock phrase. Do not flatter the company. Do not claim years of experience you were not given. Do not include a placeholder like [Your Name] — use the applicant's real name, or omit the line if you were not given one.
+When you were given links, name at most one of them — whichever best evidences this posting's work, usually the portfolio or the GitHub profile — in one natural clause inside the paragraph about your background, with the URL written exactly as you were given it. When you were given none, say nothing about a link and invent no address: a URL you composed yourself is a dead link in a job application.
+
+Do not open with "I hope this email finds you well", "I am writing to express my interest", or any other stock phrase. Do not flatter the company. Do not claim years of experience you were not given. Do not list every link you were given, and do not put a block of links under your name. Do not include a placeholder like [Your Name] — use the applicant's real name, or omit the line if you were not given one.
 
 The subject line names the role and the applicant, and nothing else.
 
@@ -99,7 +108,13 @@ export function buildEmailPrompt(request: EmailDraftRequest): string {
     sections.push('', 'Job description as posted:', truncate(request.page.jobDescription, 3000));
   }
 
-  sections.push('', 'About the applicant:', buildProfileBrief(request.profile));
+  // Links on, unlike a screener answer: this email is the whole application, so
+  // the prose is the only route a recruiter has to the applicant's actual work.
+  sections.push(
+    '',
+    'About the applicant:',
+    buildProfileBrief(request.profile, { includeLinks: true }),
+  );
 
   if (request.attachments?.length) {
     sections.push(

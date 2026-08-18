@@ -1,4 +1,4 @@
-import { truncate, type Profile } from '@autofill/core';
+import { CANONICAL_KEY_META, truncate, type CanonicalKey, type Profile } from '@autofill/core';
 import type { PageContext } from '@/shared/types';
 import { createLogger } from '@/shared/logger';
 import type { StoredAnswer } from '@/core/answers/bank';
@@ -47,20 +47,59 @@ const DEFAULT_ANSWER_CHARS = 900;
 
 const SYSTEM_PROMPT = `You draft answers to job application questions on behalf of an applicant, in their voice.
 
-Write in first person, plainly and specifically. Ground every claim in the applicant's own background as given — their roles, their skills, their past answers. Do not invent employers, dates, metrics, or achievements that are not in the material you were given; a fabricated detail in a submitted application is worse than a vague one.
+Write in first person, plainly and specifically. Ground every claim in the applicant's own background as given — their roles, their skills, their past answers. Do not invent employers, dates, metrics, achievements, or URLs that are not in the material you were given; a fabricated detail in a submitted application is worse than a vague one.
 
 Match the register of the applicant's previous answers when you are shown some.
 
+Include a link only when the question asks for one, and only a link you were given verbatim. Most answers need none, and a URL spends characters the answer's limit does not have.
+
 No preamble, no sign-off, no "Here is my answer". Return only the answer text itself, ready to paste into the form.`;
+
+type BriefLink = Exclude<keyof Profile['links'], 'twitter' | 'other'>;
+
+/**
+ * The links a brief may carry, in the order a recruiter cares about them.
+ *
+ * Not every link the schema has. `twitter` and `other` are missing on purpose:
+ * the editor's Links section offers LinkedIn, GitHub, Portfolio and Website and
+ * nothing else, and the résumé importer writes only three of those — so neither
+ * field can hold anything the applicant deliberately handed over, which is the
+ * only test §6.3 accepts for something that leaves the device. Labels come from
+ * `CANONICAL_KEY_META` so a link is called the same thing here as it is in the
+ * mapping tables and in the editor.
+ */
+const BRIEF_LINKS: ReadonlyArray<[BriefLink, CanonicalKey]> = [
+  ['portfolio', 'links.portfolio'],
+  ['github', 'links.github'],
+  ['linkedin', 'links.linkedin'],
+  ['website', 'links.website'],
+];
+
+export interface ProfileBriefOptions {
+  /**
+   * Send the applicant's links.
+   *
+   * Off unless asked for, because the two drafters want opposite things. On a
+   * form, a Portfolio field is already filled correctly by Tier 1/2 mapping, so
+   * a URL pasted into the essay box next to it is duplication — and approved
+   * answers come back as "match this voice" examples, so one URL-bearing answer
+   * teaches every later draft the habit, including in a 100-character screener
+   * box. An application email has no field to fill: the prose is the only place
+   * the recruiter can be handed the work, so there the link earns its characters.
+   */
+  includeLinks?: boolean;
+}
 
 /**
  * Everything the model is allowed to know about the applicant, in one block.
  *
  * Exported because the email drafter grounds itself in exactly the same
  * material (§3.7) — one brief, one truncation policy, one place to audit what
- * leaves the device when profile context is in play (§6.3).
+ * leaves the device when profile context is in play (§6.3). Where the two
+ * drafters genuinely differ, they differ by an option here rather than by
+ * growing a second brief, so that audit stays one file long.
  */
-export function buildProfileBrief(profile: Profile): string {
+export function buildProfileBrief(profile: Profile, options: ProfileBriefOptions = {}): string {
   const lines: string[] = [];
   const { personal, work, education, skills, preferences } = profile;
 
@@ -89,6 +128,28 @@ export function buildProfileBrief(profile: Profile): string {
 
   if (skills.length) lines.push(`Skills: ${skills.slice(0, 40).join(', ')}`);
   if (preferences.remotePreference) lines.push(`Work preference: ${preferences.remotePreference}`);
+
+  // A link is the one fact in a profile a recruiter can *click*, which is what
+  // makes it worth sending and a wrong one expensive: a model with no URL in
+  // context but a name and a GitHub-shaped hole will compose `github.com/<name>`
+  // and be wrong, and a dead link in an application reads as carelessness. So
+  // only what the applicant actually typed goes in, and a link they left blank
+  // is left out entirely — a bare `Portfolio:` with nothing after it is not a
+  // fact, it is an empty slot, and a model shown an empty slot fills it.
+  //
+  // Above the résumé fence with the other short facts, deliberately. Below it a
+  // forty-character URL is the tail of four thousand characters of extracted PDF,
+  // which is the position a model attends to worst.
+  if (options.includeLinks) {
+    const links = BRIEF_LINKS.map(
+      ([field, key]) => [CANONICAL_KEY_META[key].label, profile.links[field]?.trim()] as const,
+    ).filter(([, url]) => Boolean(url));
+
+    if (links.length) {
+      lines.push('Links:');
+      for (const [label, url] of links) lines.push(`- ${label}: ${url}`);
+    }
+  }
 
   const resume = profile.documents.resume?.parsedText;
   if (resume) lines.push('', 'Résumé text:', truncate(resume, 4000));

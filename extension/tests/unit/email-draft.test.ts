@@ -8,12 +8,13 @@ import {
 import {
   MAX_BODY_CHARS,
   MAX_SUBJECT_CHARS,
+  SYSTEM_PROMPT,
   buildEmailPrompt,
   draftApplicationEmail,
   parseDraftedEmail,
   plainApplicationEmail,
 } from '@/llm/email-draft';
-import { canDraft } from '@/llm/answer-draft';
+import { buildProfileBrief, canDraft } from '@/llm/answer-draft';
 import { gmailComposeUrl, mailtoUrl, plainTextEmail } from '@/core/email/send';
 import type { PageContext } from '@/shared/types';
 
@@ -102,6 +103,82 @@ describe('what the prompt carries (§6.3)', () => {
     expect(prompt()).toContain('note-G compiler');
   });
 
+  /**
+   * The applicant's own links (§3.7).
+   *
+   * On a form the Portfolio field is filled directly by mapping, so nobody
+   * misses it. An email posting has no fields — if the URL is not in the prose
+   * the recruiter never reaches the work, and the model, having no URL in
+   * context, either omits one or composes `github.com/<name>` and is wrong.
+   * These pin both halves: the real URL goes in verbatim, and a link the
+   * applicant never entered leaves no empty label behind for the model to fill.
+   */
+  describe('the applicant’s links', () => {
+    const withLinks = (links: Profile['links']): Profile => PROFILE.parse({ ...profile, links });
+
+    const promptWith = (links: Profile['links']) =>
+      buildEmailPrompt({ to: 'careers@acme.example', page, profile: withLinks(links) });
+
+    it('carries a portfolio URL verbatim, under its own label', () => {
+      const text = promptWith({ portfolio: 'https://avishkar2004.vercel.app/' });
+      expect(text).toContain('Links:');
+      expect(text).toContain('Portfolio: https://avishkar2004.vercel.app/');
+    });
+
+    it('carries the other links the editor offers, named the way the editor names them', () => {
+      const text = promptWith({
+        github: 'https://github.com/ada',
+        linkedin: 'https://linkedin.com/in/ada',
+        website: 'https://ada.example',
+      });
+      expect(text).toContain('GitHub: https://github.com/ada');
+      expect(text).toContain('LinkedIn: https://linkedin.com/in/ada');
+      expect(text).toContain('Website: https://ada.example');
+    });
+
+    it('omits the links a profile does not have rather than sending empty labels', () => {
+      const text = promptWith({ portfolio: 'https://avishkar2004.vercel.app/' });
+      expect(text).not.toContain('GitHub:');
+      expect(text).not.toContain('LinkedIn:');
+      expect(text).not.toContain('Website:');
+    });
+
+    // A field that was filled and then cleared is the empty string, not
+    // undefined — so a truthiness guard, not a presence check.
+    it('treats a cleared field as no link at all', () => {
+      expect(promptWith({ portfolio: '', github: '' })).not.toContain('Links:');
+    });
+
+    it('emits no section at all for a profile with no links', () => {
+      expect(prompt()).not.toContain('Links:');
+      expect(prompt()).not.toContain('Portfolio:');
+    });
+
+    /**
+     * Nothing writes `twitter` — the editor's Links section has four inputs and
+     * the résumé importer merges three — so it can only ever hold something the
+     * applicant did not choose to hand over. It stays out of the brief even
+     * though the schema and the canonical keys both have it.
+     */
+    it('leaves out a link the applicant has no way to enter', () => {
+      const text = promptWith({ twitter: 'https://x.com/ada' });
+      expect(text).not.toContain('x.com/ada');
+      expect(text).not.toContain('Links:');
+    });
+
+    /**
+     * The brief is shared with the screener-answer drafter (§3.6), which does
+     * not ask for links: a form with a Portfolio field already gets it filled,
+     * and approved answers come back as voice examples, so one URL in one answer
+     * would teach the habit to every later draft. Disclosure is per caller.
+     */
+    it('sends nothing unless the caller asks, since the answer drafter shares this brief', () => {
+      const linked = withLinks({ portfolio: 'https://avishkar2004.vercel.app/' });
+      expect(buildProfileBrief(linked)).not.toContain('avishkar2004');
+      expect(buildProfileBrief(linked, { includeLinks: true })).toContain('avishkar2004');
+    });
+  });
+
   it('states the limits it will later enforce', () => {
     expect(prompt()).toContain(String(MAX_BODY_CHARS));
     expect(prompt()).toContain(String(MAX_SUBJECT_CHARS));
@@ -121,10 +198,26 @@ describe('what the prompt carries (§6.3)', () => {
   it('invents nothing the applicant did not supply', () => {
     const text = prompt();
     // An empty profile section must stay empty rather than being filled in with
-    // something plausible — there is no education entry on this profile.
+    // something plausible — there is no education entry, and no link, on this
+    // profile.
     expect(text).not.toContain('Education:');
+    expect(text).not.toContain('Links:');
     // Nor is a company the applicant never worked at smuggled in from the page.
     expect(text).not.toMatch(/Experience:[\s\S]*Acme Corp/);
+  });
+
+  /**
+   * The grounding rules live in the system prompt, where no test can reach them
+   * by accident, so they are asserted directly. A URL is the one fabrication a
+   * recruiter clicks: an invented portfolio address is a dead link sent under
+   * the applicant's name, which is why it sits in the same sentence as invented
+   * employers rather than in a softer one of its own.
+   */
+  it('forbids inventing a URL, in the same breath as inventing an employer', () => {
+    expect(SYSTEM_PROMPT).toContain('Do not invent employers, dates, metrics, achievements, or URLs');
+    expect(SYSTEM_PROMPT).toContain('invent no address');
+    // And when there is a link, one clause — not a signature block of them.
+    expect(SYSTEM_PROMPT).toContain('Do not list every link you were given');
   });
 });
 
