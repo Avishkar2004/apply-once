@@ -9,7 +9,7 @@ anything wrong, and submit yourself.
 [§ No auto-submit](#no-auto-submit).
 
 Design documents: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
-[docs/WEB.md](docs/WEB.md)
+[docs/WORKFLOW.md](docs/WORKFLOW.md)
 
 ---
 

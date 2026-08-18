@@ -484,7 +484,7 @@ AutoFill/
 ├── docs/
 │   ├── ARCHITECTURE.md            ← this file
 │   ├── TRACKING.md                # application tracking subsystem
-│   └── WEB.md                     # hosted web app + zero-knowledge sync
+│   └── WORKFLOW.md                # runtime pipeline + development workflow
 ├── extension/
 │   ├── wxt.config.ts
 │   ├── entrypoints/
